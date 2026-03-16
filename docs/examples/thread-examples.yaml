@@ -1,0 +1,41 @@
+version: 1
+threads:
+  - id: ping-pong-example
+    goal: "Implement feature X and verify with reviewer"
+    acceptance_criteria:
+      - "No open P0/P1/P2"
+      - "Mandatory gates pass"
+      - "Confidence >= 0.95"
+    workflow_template: ping_pong
+    policy_pack_id: baseline-v1
+    context_mode: basic
+    stop_conditions:
+      max_cycles: 3
+      stuck_threshold_minutes: 30
+      turn_retry_limit: 2
+    agent_assignments:
+      builder: builder-agent-1
+      reviewer: reviewer-agent-1
+
+  - id: linear-example
+    goal: "Plan, implement, and review feature Y"
+    acceptance_criteria:
+      - "Planner emits executable plan"
+      - "Builder implementation passes checks"
+      - "Reviewer approves"
+    workflow_template: linear
+    linear_steps:
+      - planner
+      - builder
+      - reviewer
+    include_upstream: true
+    policy_pack_id: python-dev-thread-v1
+    context_mode: basic
+    stop_conditions:
+      max_cycles: 1
+      stuck_threshold_minutes: 30
+      turn_retry_limit: 2
+    agent_assignments:
+      planner: planner-agent-1
+      builder: builder-agent-1
+      reviewer: reviewer-agent-1

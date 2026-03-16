@@ -1,0 +1,24 @@
+id: python-dev-thread-v1
+confidence_threshold: 0.95
+stuck_threshold_minutes: 30
+turn_retry_limit: 2
+global_rules:
+  - Use only /Users/radhabalagopala/Dev/ChatMasala workspace.
+  - Emit required structured output block exactly.
+role_rules:
+  builder:
+    - Include changed file paths in CHANGED_ARTIFACTS.
+  reviewer:
+    - Reject if mandatory command gates are not reported.
+mandatory_gates:
+  global_defaults:
+    - parse_pass
+    - required_fields_present
+    - no_unresolved_parser_errors
+  thread_custom:
+    - command:pytest_q_pass
+    - evidence:artifact_map_present
+closure_conditions:
+  - no_open_p0_p1_p2
+  - all_mandatory_gates_pass
+  - confidence_gte_threshold

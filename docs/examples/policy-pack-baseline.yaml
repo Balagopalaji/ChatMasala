@@ -1,0 +1,22 @@
+id: baseline-v1
+confidence_threshold: 0.95
+stuck_threshold_minutes: 30
+turn_retry_limit: 2
+global_rules:
+  - Use only the assigned workflow scope.
+  - Emit required structured output block exactly.
+role_rules:
+  builder:
+    - Return READY_FOR_REVIEW or BLOCKED only.
+  reviewer:
+    - Return APPROVE, CHANGES_REQUESTED, or BLOCKED only.
+mandatory_gates:
+  global_defaults:
+    - parse_pass
+    - required_fields_present
+    - no_unresolved_parser_errors
+  thread_custom: []
+closure_conditions:
+  - no_open_p0_p1_p2
+  - all_mandatory_gates_pass
+  - confidence_gte_threshold

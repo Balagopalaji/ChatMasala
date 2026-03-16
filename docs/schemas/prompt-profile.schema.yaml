@@ -1,0 +1,50 @@
+version: 1
+entity: PromptProfile
+required:
+  - id
+  - role
+  - system_prompt
+  - output_contract
+  - assembly_order
+fields:
+  id:
+    type: string
+  role:
+    type: string
+    allowed:
+      - planner
+      - builder
+      - reviewer
+      - critic
+      - custom
+  system_prompt:
+    type: string
+  output_contract:
+    type: object
+    required:
+      - required_keys
+      - fence_start
+      - fence_end
+    fields:
+      required_keys:
+        type: list[string]
+      enum_values:
+        type: object
+        required: false
+      fence_start:
+        type: string
+      fence_end:
+        type: string
+  assembly_order:
+    type: list[string]
+    allowed_items:
+      - system_prompt
+      - global_policy
+      - role_policy
+      - thread_goal_and_acceptance
+      - turn_context
+      - user_note
+constraints:
+  - output_contract.fence_start must be "===STRUCTURED_OUTPUT==="
+  - output_contract.fence_end must be "===END_STRUCTURED_OUTPUT==="
+  - assembly_order must match section 13.1 order in the v1 spec

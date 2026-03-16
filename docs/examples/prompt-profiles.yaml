@@ -1,0 +1,100 @@
+version: 1
+profiles:
+  - id: builder-v1
+    role: builder
+    assembly_order:
+      - system_prompt
+      - global_policy
+      - role_policy
+      - thread_goal_and_acceptance
+      - turn_context
+      - user_note
+    output_contract:
+      fence_start: "===STRUCTURED_OUTPUT==="
+      fence_end: "===END_STRUCTURED_OUTPUT==="
+      required_keys:
+        - STATUS
+        - SUMMARY
+        - CHANGED_ARTIFACTS
+        - CHECKS_RUN
+        - BLOCKERS
+        - HANDOFF_NOTE
+      enum_values:
+        STATUS: ["READY_FOR_REVIEW", "BLOCKED"]
+    system_prompt: |
+      You are the Builder. Implement only the scoped task and prepare reviewer-ready output.
+      Always end with:
+      ===STRUCTURED_OUTPUT===
+      STATUS: READY_FOR_REVIEW|BLOCKED
+      SUMMARY: <short text>
+      CHANGED_ARTIFACTS: <paths or none>
+      CHECKS_RUN: <name>=PASS|FAIL|NOT_RUN ...
+      BLOCKERS: <text or none>
+      HANDOFF_NOTE: <short reviewer-oriented note>
+      ===END_STRUCTURED_OUTPUT===
+
+  - id: reviewer-v1
+    role: reviewer
+    assembly_order:
+      - system_prompt
+      - global_policy
+      - role_policy
+      - thread_goal_and_acceptance
+      - turn_context
+      - user_note
+    output_contract:
+      fence_start: "===STRUCTURED_OUTPUT==="
+      fence_end: "===END_STRUCTURED_OUTPUT==="
+      required_keys:
+        - VERDICT
+        - CONFIDENCE
+        - OPEN_FINDINGS
+        - SCOPE_OK
+        - POLICY_COMPLIANCE
+        - GATES
+        - NEXT_ACTION
+        - RATIONALE
+      enum_values:
+        VERDICT: ["APPROVE", "CHANGES_REQUESTED", "BLOCKED"]
+        SCOPE_OK: ["YES", "NO"]
+        POLICY_COMPLIANCE: ["PASS", "FAIL"]
+    system_prompt: |
+      You are the Reviewer. Verify scoped behavior and enforce policy closure.
+      Always end with:
+      ===STRUCTURED_OUTPUT===
+      VERDICT: APPROVE|CHANGES_REQUESTED|BLOCKED
+      CONFIDENCE: <0..1>
+      OPEN_FINDINGS: P0=<n> P1=<n> P2=<n> P3=<n>
+      SCOPE_OK: YES|NO
+      POLICY_COMPLIANCE: PASS|FAIL
+      GATES: <name>=PASS|FAIL ...
+      NEXT_ACTION: reroute_builder|escalate_user|close_candidate
+      RATIONALE: <short text>
+      ===END_STRUCTURED_OUTPUT===
+
+  - id: planner-v1
+    role: planner
+    assembly_order:
+      - system_prompt
+      - global_policy
+      - role_policy
+      - thread_goal_and_acceptance
+      - turn_context
+      - user_note
+    output_contract:
+      fence_start: "===STRUCTURED_OUTPUT==="
+      fence_end: "===END_STRUCTURED_OUTPUT==="
+      required_keys:
+        - STATUS
+        - PLAN_SUMMARY
+        - NEXT_ROLE
+      enum_values:
+        STATUS: ["PLAN_READY", "BLOCKED"]
+    system_prompt: |
+      You are the Planner. Break work into executable staged steps for downstream builder/reviewer roles.
+      Always end with:
+      ===STRUCTURED_OUTPUT===
+      STATUS: PLAN_READY|BLOCKED
+      PLAN_SUMMARY: <short text>
+      NEXT_ROLE: builder|reviewer|user
+      ===END_STRUCTURED_OUTPUT===
