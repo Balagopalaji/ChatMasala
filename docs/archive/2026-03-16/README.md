@@ -1,4 +1,4 @@
-# Archived Design Material
+# Deprecated Archived Design Material
 
 This folder contains earlier, broader design work that is not the active implementation scope.
 
@@ -16,3 +16,8 @@ Archive usage rule for AI agents:
 
 - do not pull requirements from this archive unless the active spec explicitly references them
 - if a future change wants to revive an archived idea, update the active spec first
+
+Deprecation rule:
+
+- every file in this folder is deprecated for active implementation
+- these files exist only to preserve ideas for possible later revival

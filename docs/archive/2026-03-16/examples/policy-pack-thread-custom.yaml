@@ -1,3 +1,6 @@
+deprecated: true
+deprecated_note: "Archived reference only. Do not use for active MVP implementation. Use docs/mvp-build-spec.md."
+
 id: python-dev-thread-v1
 confidence_threshold: 0.95
 stuck_threshold_minutes: 30

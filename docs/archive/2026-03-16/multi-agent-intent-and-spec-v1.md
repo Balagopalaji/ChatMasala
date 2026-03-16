@@ -1,3 +1,11 @@
+# DEPRECATED FOR ACTIVE IMPLEMENTATION
+
+This document is archived reference material only.
+
+Do not use it as the implementation source of truth for the current MVP.
+
+Use `docs/mvp-build-spec.md` instead.
+
 # Multi-Agent Handoff Runtime: Intent + Spec (MVP/V1)
 
 ## 1) Product Intent

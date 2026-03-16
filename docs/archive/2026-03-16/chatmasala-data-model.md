@@ -1,3 +1,11 @@
+# DEPRECATED FOR ACTIVE IMPLEMENTATION
+
+This document is archived reference material only.
+
+Do not use it as the implementation source of truth for the current MVP.
+
+Use `docs/mvp-build-spec.md` instead.
+
 # FORGE Spec: ChatMasala Core Data Model and Session State Machine
 
 ## 0. Pre-Flight Decisions
