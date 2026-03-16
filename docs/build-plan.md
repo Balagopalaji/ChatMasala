@@ -1,224 +1,644 @@
-# ChatMasala Builder Pass Checklist
+# ChatMasala Redesign Pass Checklist
 
-> Decision: keep this plan in `docs/build-plan.md` so there is one active execution checklist for builder agents.
+> Decision: use this file as the execution checklist for the next redesign pass.
 >
-> Source of truth: `README.md` and `docs/mvp-build-spec.md`
+> Source of truth for this pass: the current non-archive repository implementation plus the redesign requirements in the active task.
 >
 > Ignore for implementation decisions: `docs/archive/**` and `tmp/**`
 
-## How to use this file
-- Complete passes in order.
-- Do not start the next pass until the current pass exit checklist is fully checked off.
-- Check a box only when the work is implemented and verified.
-- If `README.md` and `docs/mvp-build-spec.md` conflict, stop and resolve the conflict before building further.
-- Keep scope to the MVP only.
+## 1. Redesign Summary
 
-## Pass Status Overview
-- [x] Pass 0 — Scope Lock and Build Contract
-- [x] Pass 1 — Repo Foundation and Local Setup
-- [x] Pass 2 — Data Model, Contracts, and Persistence
-- [x] Pass 3 — Core Backend and Service Flows
-- [x] Pass 4 — Frontend and End-to-End MVP Flows
-- [x] Pass 5 — Hardening, QA, and Documentation Sync
+Redesign the current MVP from a thread/raw-command CRUD prototype into a simpler run-first product where the user:
+
+- creates a `Run`, not a `Thread`
+- enters a `goal`, not `task_text`
+- selects a `workspace`, not `working_directory`
+- chooses one of exactly two workflow presets:
+  - `Single Agent`
+  - `Builder -> Reviewer`
+- selects saved `AgentProfile` records instead of entering raw commands per run
+- views progress in a chat-style relay page with one or two lanes depending on workflow
+- keeps the existing CLI-first, polling-based backend under the hood
+
+This is a **clean-break dev-pass redesign**, not a migration-heavy compatibility exercise.
+
+## 2. Simplifying Rules For This Pass
+
+Keep the implementation intentionally narrow.
+
+### Required simplifications
+- Treat the local DB as disposable.
+- Prefer a clean schema reset over migration code.
+- Do **not** build a SQLite migration framework.
+- Do **not** add DB backup logic.
+- Do **not** add `agent_config_json` snapshots yet.
+- Do **not** add a persisted event/system-turn model unless it becomes truly necessary.
+- Keep workflow definitions hard-coded in a tiny constant list.
+- Keep polling via the current HTML refresh approach; no streaming transport work.
+- Keep the CLI seam under `app/agents/cli_runner.py`; users choose profiles, not raw commands per run.
+
+### Safe rule of thumb
+If a part of the plan exists mainly for future-proofing rather than the next visible UX, cut it.
+
+## 3. Recommended Execution Order
+
+1. Add `AgentProfile` support, shipped instruction files, and a profile-management settings page.
+2. Rename the product and schema from `Thread` to `Run` with a clean DB break.
+3. Redesign the new run form around workflow preset selection, profile dropdowns, workspace picking, and loop controls.
+4. Update the orchestrator to use selected profiles and the two hard-coded workflows.
+5. Redesign the run detail page into a workflow-aware chat relay view.
+6. Update tests and active docs to match the redesign.
+
+## 4. How To Use This File
+
+- Complete phases in order.
+- Do not widen scope beyond the checklist below.
+- Check a box only when the work is implemented and verified.
+- If the codebase and this plan diverge, update the plan before continuing.
+- Prefer deleting old prototype assumptions over layering aliases everywhere.
+- If a task is only for old thread/raw-command behavior, remove or replace it instead of preserving it for compatibility.
+
+## 5. Pass Status Overview
+
+- [ ] Phase 0 — Scope Lock For The Redesign Pass
+- [ ] Phase 1 — Agent Profiles Foundation
+- [ ] Phase 2 — Clean-Break Run Schema And Naming
+- [ ] Phase 3 — Run Creation UX Redesign
+- [ ] Phase 4 — Orchestrator Update For Two Presets
+- [ ] Phase 5 — Run Detail Relay View Redesign
+- [ ] Phase 6 — Docs And Regression Hardening
 
 ---
 
-## Pass 0 — Scope Lock and Build Contract
+## Phase 0 — Scope Lock For The Redesign Pass
 
-**Goal:** turn the active docs into an unambiguous build contract before implementation starts.
+**Purpose:** confirm the redesign target and explicitly cut future-facing persistence and workflow work before builders start changing code.
+
+### Likely files/modules
+- `README.md`
+- `AGENTS.md`
+- `docs/mvp-build-spec.md`
+- `docs/build-plan.md`
+
+### Data model decisions to lock
+- `Thread` becomes `Run`
+- `task_text` becomes `goal`
+- `working_directory` becomes `workspace`
+- Add `AgentProfile`
+- `Run` stores direct profile IDs, not profile snapshots
+- No migration framework; clean DB reset is acceptable
+
+### Route/UI decisions to lock
+- `/threads/*` becomes `/runs/*`
+- New run form is goal-first
+- Settings page becomes agent profile management
+- Workflow preset list is exactly:
+  - `single_agent`
+  - `builder_reviewer`
+
+### Test changes to plan for
+- broad route test rewrite
+- model test rewrite
+- orchestrator behavior updates for single-agent and loop toggle
+- docs sync checks at the end of the pass
+
+### Risks/gotchas
+- The repo currently mixes `Run` copy with `Thread` internals; builders must not mistake that for a completed rename.
+- Current docs still describe the old MVP and must be treated as needing redesign updates, not as blockers against the requested clean break.
+- Avoid inventing a generalized workflow engine while trying to support two presets.
 
 ### Builder checklist
-- [ ] Read `README.md` fully.
-- [ ] Read `docs/mvp-build-spec.md` fully.
-- [ ] Confirm the product goal in one clear sentence.
-- [ ] List the MVP user types or actors described in the active docs.
-- [ ] List the required MVP flows described in the active docs.
-- [ ] List explicit non-goals and out-of-scope items.
-- [ ] Identify the required system parts from the active docs: frontend, backend, storage, integrations, worker jobs, or other runtime components.
-- [ ] Identify any missing decisions that would block implementation.
-- [ ] Resolve ambiguous requirements before code work begins.
-- [ ] Convert the MVP into a concrete implementation checklist that builders can execute without referring to deprecated docs.
+- [ ] Confirm the redesign goal in one sentence.
+- [ ] Confirm the pass is a clean-break dev prototype change, not a backward-compatible migration effort.
+- [ ] Confirm the only workflow presets in scope are `Single Agent` and `Builder -> Reviewer`.
+- [ ] Confirm polling remains sufficient.
+- [ ] Confirm raw per-run command entry is removed from the run creation UX.
+- [ ] Confirm no YAML engines, planner workflows, JSON APIs, MCP, browser extensions, inbox models, route-to actions, hosted routing, PTY embedding, or streaming transports will be added.
 
 ### Verification checklist
-- [ ] Every MVP feature in `docs/mvp-build-spec.md` maps to at least one planned implementation task.
-- [ ] Every out-of-scope item is clearly excluded from builder work.
-- [ ] No implementation requirement is taken from `docs/archive/**`.
-- [ ] The team has a shared definition of MVP done.
+- [ ] All builders are working from the same narrow scope.
+- [ ] No persistence future-proofing work is planned beyond the next visible UX.
+- [ ] The redesign remains CLI-first under the hood.
 
 ### Exit checklist
 - [ ] Scope is locked.
-- [ ] Open questions are resolved or explicitly deferred.
-- [ ] Builders can proceed without using deprecated docs.
+- [ ] Simplifying rules are accepted.
+- [ ] Builders can begin implementation without adding migration/framework work.
 
 ---
 
-## Pass 1 — Repo Foundation and Local Setup
+## Phase 1 — Agent Profiles Foundation
 
-**Goal:** make the project runnable, buildable, and testable in a clean local environment.
+**Purpose:** introduce first-class agent profiles and shipped instruction files before changing run creation.
+
+### Likely files/modules
+- `app/models.py`
+- `app/db.py`
+- `app/schemas.py`
+- `app/routes/settings.py`
+- `app/templates/settings.html`
+- `app/templates/base.html`
+- `tests/test_models.py`
+- `tests/test_routes.py`
+- `README.md`
+- `AGENTS.md`
+- `docs/mvp-build-spec.md`
+
+### Data model changes
+Add `AgentProfile` with:
+- `name`
+- `provider`
+- `command_template`
+- `instruction_file`
+
+Add only the minimal fields needed for profile selection and command resolution.
+
+Do **not** add:
+- profile snapshots
+- profile versioning
+- delete/archive history models
+- provider-specific config tables
+
+### File/assets changes
+Ship default instruction markdown files under:
+- `profiles/agents/single-agent.md`
+- `profiles/agents/builder.md`
+- `profiles/agents/reviewer.md`
+
+Seed a minimal default set of `AgentProfile` rows that reference those files.
+
+### Route/UI changes
+Repurpose `/settings` into an agent profiles page.
+
+Required UI outcomes:
+- list existing profiles
+- create a profile
+- edit a profile
+- validate that `instruction_file` exists and is readable
+
+Keep scope narrow:
+- create and edit only
+- defer delete/archive actions
+
+### Test changes
+- add model coverage for `AgentProfile`
+- add route coverage for listing, creating, and editing profiles
+- add validation coverage for missing or unreadable `instruction_file`
+- add seed behavior coverage if seeding is implemented
+
+### Risks/gotchas
+- Profile records should stay simple display/config records; do not turn them into a provider abstraction layer.
+- If seed data is added, make it idempotent.
+- Settings page should stop teaching users to think in raw commands per run.
 
 ### Builder checklist
-- [ ] Confirm the intended project structure from the current repo and active docs.
-- [ ] Set up or clean up the local development workflow.
-- [ ] Ensure environment configuration is documented and reproducible.
-- [ ] Add or fix example environment configuration if the app requires runtime variables.
-- [ ] Add or fix root-level developer scripts for install, run, build, lint, and test if the stack supports them.
-- [ ] Ensure the main app starts locally.
-- [ ] Ensure any required backend or supporting service starts locally.
-- [ ] Ensure frontend and backend can run together if both are part of the MVP.
-- [ ] Document the exact local startup flow in `README.md` if it is missing or incorrect.
-- [ ] Add minimal CI-friendly validation steps if the repo currently lacks them.
+- [ ] Add `AgentProfile` to `app/models.py`.
+- [ ] Add any minimal schema/form helpers needed for profile create/edit validation.
+- [ ] Add shipped instruction markdown files under `profiles/agents/`.
+- [ ] Seed default profiles for single-agent, builder, and reviewer usage.
+- [ ] Replace the old global command settings UX with profile management UX.
+- [ ] Keep profile management limited to create/edit/list.
 
 ### Verification checklist
-- [ ] A fresh developer can install dependencies using documented steps.
-- [ ] A fresh developer can start the app using documented steps.
-- [ ] The build completes successfully.
-- [ ] Lint passes or known failures are explicitly documented and reduced to MVP-safe exceptions.
-- [ ] Tests run successfully or the missing test areas are explicitly identified for later passes.
+- [ ] A fresh local DB includes default agent profiles.
+- [ ] `/settings` shows profiles instead of global builder/reviewer command strings.
+- [ ] A profile cannot be saved with a missing instruction file.
+- [ ] No per-run raw command UX remains on the settings page.
 
 ### Exit checklist
-- [ ] Local setup is reliable.
-- [ ] Build and test entry points are clear.
-- [ ] The repo is ready for feature implementation.
+- [ ] Agent profiles exist as first-class records.
+- [ ] Default instruction files are shipped.
+- [ ] Settings page now manages profiles.
 
 ---
 
-## Pass 2 — Data Model, Contracts, and Persistence
+## Phase 2 — Clean-Break Run Schema And Naming
 
-**Goal:** define the canonical data model and interfaces before building feature logic.
+**Purpose:** rename the core product model and strip out thread/raw-command terminology across implementation surfaces.
+
+### Likely files/modules
+- `app/models.py`
+- `app/db.py`
+- `app/schemas.py`
+- `app/main.py`
+- `app/routes/threads.py`
+- `app/templates/thread_list.html`
+- `app/templates/thread_new.html`
+- `app/templates/thread_detail.html`
+- `tests/test_models.py`
+- `tests/test_routes.py`
+- `tests/test_orchestrator.py`
+
+### Data model changes
+Replace `Thread` with `Run`.
+
+Recommended `Run` fields for this pass:
+- `id`
+- `title`
+- `goal`
+- `plan_text`
+- `workflow_type`
+- `primary_agent_profile_id` nullable
+- `builder_agent_profile_id` nullable
+- `reviewer_agent_profile_id` nullable
+- `workspace` nullable
+- `loop_enabled`
+- `status`
+- `current_role` nullable
+- `round_count`
+- `max_rounds`
+- `last_error`
+- `created_at`
+- `updated_at`
+
+Update related models:
+- `Turn.thread_id` -> `Turn.run_id`
+- `UserNote.thread_id` -> `UserNote.run_id`
+
+Remove old per-run raw command fields from the top-level model.
+
+### DB strategy
+Use a clean-break schema update appropriate for a disposable local prototype.
+
+Implementation expectation:
+- builders may delete the local DB and recreate it
+- no migration framework
+- no backup logic
+- no legacy compatibility layer beyond what is truly needed during the code change
+
+### Route/UI changes
+- rename primary route surfaces from `/threads/*` to `/runs/*`
+- rename route/module/template references from thread to run terminology
+- keep the existing app structure simple; a renamed route module is fine
+- remove stale thread labels and comments from templates
+
+### Test changes
+- rewrite model tests to use `Run`
+- rewrite route tests to target `/runs/*`
+- update any FK assertions to `run_id`
+- update helper fixtures and factory names to run terminology
+
+### Risks/gotchas
+- Partial renames will create confusing mixed terminology across routes, models, and templates.
+- This pass touches nearly every selected test file; do not attempt tiny patch edits while keeping old semantics.
+- Avoid adding long-lived `/threads/*` aliases unless absolutely necessary for bootstrapping the branch.
 
 ### Builder checklist
-- [ ] Identify the core domain entities required by the MVP.
-- [ ] Define the canonical fields and validation rules for each entity.
-- [ ] Define request and response contracts between client and server if the MVP is multi-tier.
-- [ ] Define internal service contracts where one backend module depends on another.
-- [ ] Decide which data must persist and which can remain transient.
-- [ ] Define storage structure or schema for persisted data if persistence is required.
-- [ ] Define identifiers, statuses, and lifecycle transitions for core entities.
-- [ ] Handle invalid input, missing state, and duplicate operations in the contracts.
-- [ ] Add model-level tests for validation, serialization, and invariants.
-- [ ] Document any contract decisions that are required for frontend and backend parallel work.
+- [ ] Rename the top-level ORM model from `Thread` to `Run`.
+- [ ] Rename `task_text` to `goal`.
+- [ ] Rename `working_directory` to `workspace`.
+- [ ] Replace direct command fields on the top-level model with profile ID fields.
+- [ ] Rename `thread_id` FKs to `run_id` in related models.
+- [ ] Update route/module/template naming to run terminology.
+- [ ] Remove active code paths that still depend on old global command settings.
 
 ### Verification checklist
-- [ ] Core entities from the MVP spec are represented in code.
-- [ ] Invalid payloads are rejected cleanly.
-- [ ] Persisted data shape matches the needs of the MVP flows.
-- [ ] Model tests cover expected and invalid cases.
-- [ ] Frontend and backend can rely on the same contract definitions or equivalent documented schema.
+- [ ] The app boots against a fresh clean DB.
+- [ ] No selected implementation file still uses `Thread` as the active product concept.
+- [ ] No selected implementation file still uses `task_text` or `working_directory` as the active user-facing field names.
+- [ ] Route tests can be updated against `/runs/*` without compatibility hacks.
 
 ### Exit checklist
-- [ ] Canonical model and contract layer is stable.
-- [ ] Persistence decisions are made.
-- [ ] Builders can implement service and UI layers without guessing data shape.
+- [ ] `Run` is the canonical domain model.
+- [ ] Clean DB recreation works.
+- [ ] Old thread/raw-command persistence assumptions are removed.
 
 ---
 
-## Pass 3 — Core Backend and Service Flows
+## Phase 3 — Run Creation UX Redesign
 
-**Goal:** implement the server-side or core application logic that powers the MVP.
+**Purpose:** make run creation workflow-first, profile-based, and workspace-aware.
+
+### Likely files/modules
+- `app/routes/threads.py` or renamed run route module
+- `app/templates/thread_new.html` or renamed run template
+- `app/templates/base.html`
+- `app/static/main.js`
+- `app/static/main.css`
+- `tests/test_routes.py`
+
+### Data model changes
+No new model beyond Phase 2.
+
+Use the `Run` fields already defined:
+- `goal`
+- `workflow_type`
+- `primary_agent_profile_id`
+- `builder_agent_profile_id`
+- `reviewer_agent_profile_id`
+- `workspace`
+- `loop_enabled`
+- `max_rounds`
+
+### Route/UI changes
+Redesign the new run form so:
+- `goal` is the primary field
+- `Plan / Constraints` is secondary and optional
+- `title` is auto-generated from `goal`
+- workflow preset dropdown contains only:
+  - `Single Agent`
+  - `Builder -> Reviewer`
+- agent dropdowns are populated from `AgentProfile`
+- workspace input supports recent workspaces plus manual entry
+- loop toggle and max rounds are only shown for loop-capable workflows
+- for now, only `Builder -> Reviewer` is loop-capable
+
+Recommended implementation choices:
+- derive recent workspaces from recent `Run.workspace` values
+- use a text input plus suggestions or chips; do not add a workspace table
+- keep client-side JS minimal and server-rendered
+
+### Test changes
+- add route coverage for workflow dropdown options
+- add route coverage for profile dropdown population
+- add route coverage for workspace suggestions
+- add route coverage for goal-required validation
+- add route coverage for title auto-generation
+- add route coverage for loop/max-round conditional behavior
+
+### Risks/gotchas
+- Do not reintroduce raw command fields in a hidden advanced section.
+- Keep the workflow logic hard-coded; this is not the place to build a reusable engine.
+- Make sure title generation is deterministic and editable later, rather than turning title into a large design problem.
 
 ### Builder checklist
-- [ ] Implement the core service layer for the MVP workflows.
-- [ ] Implement the required API routes, handlers, actions, or commands described by the active spec.
-- [ ] Add validation and error handling at every boundary.
-- [ ] Add authorization, access rules, or policy checks if the MVP requires them.
-- [ ] Implement persistence reads and writes where needed.
-- [ ] Implement background processing, async jobs, or event flows only if the MVP requires them.
-- [ ] Add structured logging for important success and failure paths.
-- [ ] Add integration tests for the main service flows.
-- [ ] Add regression coverage for known edge cases discovered during implementation.
-- [ ] Ensure backend behavior matches the active MVP spec and not archived concepts.
+- [ ] Make `goal` the primary run creation field.
+- [ ] Make `Plan / Constraints` secondary and optional.
+- [ ] Remove the required create-time title field from the main UX.
+- [ ] Auto-generate the initial title from the goal.
+- [ ] Add the two-option workflow preset dropdown.
+- [ ] Add profile dropdowns populated from `AgentProfile`.
+- [ ] Add workspace picking with recent values plus manual path entry.
+- [ ] Show loop toggle and max rounds only for `Builder -> Reviewer`.
+- [ ] Remove raw command entry from the new run form.
 
 ### Verification checklist
-- [ ] Every required backend flow from the MVP spec works in isolation.
-- [ ] Invalid requests fail predictably.
-- [ ] Data writes and reads are correct.
-- [ ] Integration tests cover the primary happy paths and major failure paths.
-- [ ] No backend feature depends on deprecated archived behavior.
+- [ ] A user can create a single-agent run without seeing reviewer-specific controls.
+- [ ] A user can create a builder-reviewer run with builder and reviewer profile selectors.
+- [ ] A user can enter a workspace manually or choose a recent one.
+- [ ] The generated title is reasonable and the run still persists if the user never typed a title.
 
 ### Exit checklist
-- [ ] Core services are functional.
-- [ ] Contracts are enforced at runtime.
-- [ ] Backend is ready for frontend integration.
+- [ ] Run creation is profile-based and workflow-first.
+- [ ] Goal is primary in the UX.
+- [ ] Workspace and loop controls behave as required.
 
 ---
 
-## Pass 4 — Frontend and End-to-End MVP Flows
+## Phase 4 — Orchestrator Update For Two Presets
 
-**Goal:** deliver the actual user-facing MVP experience and wire it to real data/services.
+**Purpose:** keep the deterministic CLI-first backend, but route work based on selected profiles and the two supported workflow presets.
+
+### Likely files/modules
+- `app/orchestrator.py`
+- `app/prompts.py`
+- `app/parser.py`
+- `app/agents/cli_runner.py`
+- `app/db.py`
+- `tests/test_orchestrator.py`
+- `tests/test_parser.py`
+
+### Data model changes
+No new persistence types beyond `Run`, `Turn`, `UserNote`, and `AgentProfile`.
+
+Keep workflow metadata minimal:
+- hard-code the two preset IDs in code
+- do not add a workflow table
+- do not add a generalized workflow module beyond a tiny constant list if needed
+
+### Orchestrator changes
+Required behavior:
+- `single_agent` runs one agent lane with one selected profile
+- `builder_reviewer` preserves the deterministic relay loop
+- selected profile records determine:
+  - `command_template`
+  - `instruction_file`
+- `workspace` is passed through to the CLI runner
+- background task entry points must own their own DB session rather than reusing the request session
+
+Loop behavior:
+- only `builder_reviewer` supports looping
+- if loop is disabled and reviewer requests changes, route to user attention
+- if max rounds are reached, route to user attention
+
+Prompt/parser behavior:
+- rename task language to goal language
+- add single-agent prompt and parser contract
+- keep structured-output parsing strict
+- keep prompts deterministic and simple
+
+System/routing cards:
+- first try deriving routing cards in the UI from existing turns and run state
+- do not persist a new system event model unless the UI truly cannot be implemented cleanly without it
+
+### Test changes
+- add single-agent parser coverage
+- add single-agent orchestration coverage
+- add loop-disabled builder-reviewer coverage
+- add max-round coverage under the renamed run model
+- add regression coverage for background-task-safe session handling
+- update mocks and assertions from raw command fields to selected profiles
+
+### Risks/gotchas
+- The current background task pattern passes a request-scoped session into background work; that should be corrected in this phase.
+- Avoid turning prompt construction into profile/policy layering.
+- Avoid persisting extra routing artifacts unless the UI proves it is necessary.
 
 ### Builder checklist
-- [ ] Implement the required routes, screens, views, or components for the MVP.
-- [ ] Implement all primary user interactions described in the active spec.
-- [ ] Connect the UI to the real data contracts and backend flows.
-- [ ] Handle loading, empty, success, and error states for every primary flow.
-- [ ] Handle validation feedback in the UI.
-- [ ] Ensure the app works for first-time use and repeat use where the MVP requires it.
-- [ ] Ensure state updates are reflected correctly in the UI.
-- [ ] Add component, integration, or end-to-end tests for the main user flows where the stack supports them.
-- [ ] Verify responsive behavior if the MVP expects multiple screen sizes.
-- [ ] Verify basic accessibility expectations for labels, focus, and keyboard use where applicable.
+- [ ] Update the orchestrator to load selected profile records for each run.
+- [ ] Use profile `command_template` instead of raw per-run commands.
+- [ ] Load instruction text from `instruction_file`.
+- [ ] Add `single_agent` execution flow.
+- [ ] Keep `builder_reviewer` deterministic and simple.
+- [ ] Respect `loop_enabled` and `max_rounds` only for loop-capable workflows.
+- [ ] Rename runner usage from `working_directory` to `workspace`.
+- [ ] Fix background task/session handling so background work opens its own DB session.
+- [ ] Keep routing/event persistence out unless proven necessary.
 
 ### Verification checklist
-- [ ] Each MVP user flow can be completed manually from start to finish.
-- [ ] UI behavior matches the active spec.
-- [ ] Error states are visible and understandable.
-- [ ] Frontend uses current contracts and does not depend on guessed payload shapes.
-- [ ] Automated coverage exists for the most important user journeys supported by the stack.
+- [ ] A single-agent run can start and complete through the existing CLI seam.
+- [ ] A builder-reviewer run still routes deterministically.
+- [ ] Disabling loops causes reviewer change requests to stop for user attention.
+- [ ] Max rounds still cap builder-reviewer cycling.
+- [ ] Background tasks no longer rely on request-scoped DB sessions.
 
 ### Exit checklist
-- [ ] The MVP happy path works end to end.
-- [ ] The UI is integrated with real services.
-- [ ] Primary user journeys are testable and demonstrable.
+- [ ] Both supported presets run end to end.
+- [ ] Profile selection drives command execution.
+- [ ] Orchestrator complexity remains bounded.
 
 ---
 
-## Pass 5 — Hardening, QA, and Documentation Sync
+## Phase 5 — Run Detail Relay View Redesign
 
-**Goal:** stabilize the MVP, close obvious gaps, and leave the active docs accurate.
+**Purpose:** redesign the detail page around the new product model while reusing as much of the current transcript UI foundation as possible.
+
+### Likely files/modules
+- `app/routes/threads.py` or renamed run route module
+- `app/templates/thread_detail.html` or renamed run detail template
+- `app/templates/base.html`
+- `app/static/main.css`
+- `app/static/main.js`
+- `tests/test_routes.py`
+
+### Data model changes
+No required new persistence for this phase.
+
+Prefer using existing `Turn` and `Run` data to render the view.
+
+### Route/UI changes
+Required outcomes:
+- `Single Agent` renders one lane
+- `Builder -> Reviewer` renders two lanes
+- routing events appear as system cards in the UI
+- raw prompt/output details stay collapsed by default
+- title is editable later on the detail page
+- metadata area shows workflow, workspace, chosen profiles, and current status
+- polling remains sufficient via the existing meta refresh approach while active
+
+Recommended approach:
+- keep the transcript/chat visual language already present
+- adapt the current detail page rather than rewriting the whole design system
+- derive system cards from run/turn state where possible instead of persisting them
+
+### Test changes
+- add detail view coverage for single-agent layout
+- add detail view coverage for builder-reviewer layout
+- add title edit route coverage
+- add route/template coverage for workflow metadata display
+- add coverage that raw prompt/output sections remain collapsed by default
+
+### Risks/gotchas
+- The current detail page already has separate builder/reviewer columns; builders should reuse that visual base where possible.
+- Deriving routing cards in the UI must stay understandable; if it becomes brittle, only then consider a minimal persisted alternative.
+- Do not widen this into a full activity/event timeline subsystem.
 
 ### Builder checklist
-- [x] Run the full project build.
-- [x] Run lint across the changed code.
-- [x] Run automated tests across the changed code.
-- [x] Fix critical defects and regressions found during testing.
-- [x] Add regression tests for any bugs fixed in this pass.
-- [x] Review edge cases in the highest-risk flows from the MVP spec.
-- [x] Remove dead code, stale comments, and abandoned experiments from the implementation path.
-- [x] Update `README.md` if setup, usage, or architecture guidance changed.
-- [x] Update active docs in `docs/` if implementation details changed from the prior plan.
-- [x] Confirm that deprecated docs in `docs/archive/**` remain unused and untouched as source-of-truth inputs.
+- [ ] Rename the detail view from thread to run terminology.
+- [ ] Keep polling via meta refresh for active states.
+- [ ] Render one lane for `Single Agent`.
+- [ ] Render two lanes for `Builder -> Reviewer`.
+- [ ] Show routing/system cards in the transcript UI.
+- [ ] Keep raw prompt/output details collapsed by default.
+- [ ] Add editable title support on the detail page.
+- [ ] Show workflow, workspace, and selected profile metadata.
 
 ### Verification checklist
-- [x] Build passes.
-- [x] Lint passes.
-- [x] Tests pass.
-- [x] Main manual smoke flows succeed.
-- [x] Active docs match shipped behavior.
-- [x] No known critical blocker remains for MVP release.
+- [ ] Single-agent runs are easy to understand in one lane.
+- [ ] Builder-reviewer runs remain easy to scan in two lanes.
+- [ ] The detail view no longer feels like raw CRUD over backend fields.
+- [ ] Polling still keeps the active relay view usable without streaming.
 
 ### Exit checklist
-- [x] The MVP is stable enough to hand off, demo, or release.
-- [x] Documentation reflects reality.
-- [x] Builder work is complete for the current MVP scope.
+- [ ] Run detail matches the redesign target.
+- [ ] Chat-style relay view is in place.
+- [ ] No streaming/event-system scope creep was introduced.
 
 ---
 
-## Recommended Builder-Agent Sequencing
-- Builder Agent 1: Pass 0 and Pass 1
-- Builder Agent 2: Pass 2
-- Builder Agent 3: Pass 3
-- Builder Agent 4: Pass 4
-- Builder Agent 5: Pass 5
+## Phase 6 — Docs And Regression Hardening
 
-If fewer agents are available, keep the pass order the same and combine adjacent passes.
+**Purpose:** finish the pass by updating tests and rewriting active docs so future builders do not revert the redesign.
+
+### Likely files/modules
+- `README.md`
+- `AGENTS.md`
+- `docs/mvp-build-spec.md`
+- `docs/build-plan.md`
+- `tests/test_models.py`
+- `tests/test_routes.py`
+- `tests/test_orchestrator.py`
+- `tests/test_parser.py`
+- `tests/test_placeholder.py`
+
+### Data model changes
+None.
+
+### Route/UI changes
+None beyond final cleanup and doc accuracy.
+
+### Test changes
+Required update areas:
+- model tests renamed to `Run`
+- route tests renamed to `/runs/*`
+- new form expectations for goal/workflow/profiles/workspace
+- single-agent behavior coverage
+- builder-reviewer loop toggle coverage
+- detail page rendering coverage
+- profile settings coverage
+- any stale placeholder comments or old MVP language removed
+
+### Docs changes
+Update active docs to reflect:
+- `Run` terminology
+- `goal`
+- `workspace`
+- profile-based agent selection
+- workflow presets limited to two hard-coded options
+- chat-style relay view
+- polling still sufficient
+- clean-break dev prototype expectations where relevant
+
+### Risks/gotchas
+- If docs are left in the old thread/raw-command state, future agents will likely reintroduce removed behavior.
+- This phase is not optional; documentation drift would create immediate confusion for later passes.
+
+### Builder checklist
+- [ ] Rewrite tests to match the redesigned product model.
+- [ ] Remove old thread/raw-command assumptions from active tests.
+- [ ] Update `README.md` to describe the redesigned product.
+- [ ] Update `AGENTS.md` to describe the new active boundary.
+- [ ] Update `docs/mvp-build-spec.md` to reflect the redesign.
+- [ ] Remove stale comments and placeholder language that still describe the old MVP.
+
+### Verification checklist
+- [ ] Active docs match shipped behavior.
+- [ ] Tests cover the two supported workflows.
+- [ ] No selected file still describes raw per-run command entry as the main UX.
+- [ ] No active doc points builders toward archived concepts.
+
+### Exit checklist
+- [ ] Docs and tests match the redesign.
+- [ ] The pass is safe for the next builder to continue from.
+- [ ] The repo no longer presents the old MVP as current truth.
 
 ---
 
-## Whole-Project Done Checklist
-- [ ] The implementation follows `docs/mvp-build-spec.md`.
-- [ ] The implementation does not rely on `docs/archive/**`.
-- [ ] A clean local setup works from `README.md`.
-- [ ] The MVP happy paths work end to end.
-- [ ] Core failure states are handled safely.
-- [ ] Automated validation passes.
-- [ ] Active docs match the shipped MVP.
+## 6. Explicit Deferred List
+
+Do **not** add any of the following in this pass:
+
+- YAML workflow engines
+- planner workflows
+- arbitrary multi-agent graphs
+- JSON or public API expansion
+- MCP integration
+- browser extensions
+- inbox/task models
+- manual route-to actions
+- hosted or cloud routing
+- PTY embedding
+- streaming transports
+- websocket or SSE transport work
+- profile snapshot persistence
+- workflow definition frameworks
+- migration frameworks
+- DB backup/rollback systems
+- workspace management tables
+- filesystem picker dialogs
+- provider-specific command templating systems
+- profile delete/archive UX unless it becomes necessary for correctness
+
+## 7. Final Recommendation
+
+Yes, this redesign scope remains appropriately simple **if** builders hold the line on the trimmed plan:
+
+- clean DB reset instead of migration work
+- direct profile IDs on `Run`
+- exactly two hard-coded workflow presets
+- profile-based command selection
+- chat-style relay redesign
+- polling kept as sufficient
+- no future-proofing layers unless they are required for the next visible UX
+
+If the pass starts adding persistence indirection, generalized workflow abstractions, or transport changes, it has gone out of scope.
