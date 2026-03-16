@@ -2,6 +2,16 @@
 
 ChatMasala is a minimal local orchestration tool for two CLI AI agents.
 
+## Redesign Notice
+
+The product is currently in an active redesign pass.
+
+For implementation decisions during this pass, use:
+
+- `docs/build-plan.md`
+
+The older MVP wording in this file and in `docs/mvp-build-spec.md` is being replaced incrementally. If those docs conflict with `docs/build-plan.md`, follow `docs/build-plan.md` for the current redesign work.
+
 The MVP goal is simple: you provide one task and one plan, the app relays work between a `builder` agent and a `reviewer` agent so you do not have to copy/paste between them.
 
 This repository is optimized for AI agents building the product. The active source of truth is:

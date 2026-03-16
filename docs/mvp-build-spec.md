@@ -4,6 +4,16 @@ This document is the active source of truth for implementation.
 
 It is written for AI coding agents. Follow it literally. Do not expand scope unless this file is updated.
 
+## Redesign Pass Notice
+
+The repository is currently in an active redesign pass.
+
+For the current implementation sequence, use:
+
+- `docs/build-plan.md`
+
+This file still contains older MVP wording and is pending a full rewrite to match the redesign. If this file conflicts with `docs/build-plan.md`, follow `docs/build-plan.md` during the redesign pass and update this spec later as part of docs sync.
+
 ## 1. Product Goal
 
 Build a local app that lets one user give a task and plan once, then have two CLI AI agents talk to each other without manual copy/paste.

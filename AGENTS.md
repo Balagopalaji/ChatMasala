@@ -12,6 +12,12 @@ Use this file as the implementation authority:
 
 - `docs/mvp-build-spec.md`
 
+Current redesign-pass execution checklist:
+
+- `docs/build-plan.md`
+
+If `docs/mvp-build-spec.md` conflicts with `docs/build-plan.md` during the active redesign pass, follow `docs/build-plan.md` for implementation decisions and treat `docs/mvp-build-spec.md` as in-progress documentation that must be updated later in the pass.
+
 Treat archived material as background only:
 
 - `docs/archive/2026-03-16/`
@@ -28,6 +34,11 @@ Build only the current MVP:
 - one fixed workflow: `builder -> reviewer -> builder`
 - deterministic routing based on strict structured output parsing
 - transcript plus basic controls
+
+Redesign-pass note:
+
+- the repo is actively moving from `Thread` terminology and raw per-run command entry toward `Run`, `AgentProfile`, workflow presets, and a chat-style relay UI
+- do not preserve old thread/raw-command UX purely for backward compatibility in this local dev prototype
 
 Do not add:
 

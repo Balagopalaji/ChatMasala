@@ -114,11 +114,13 @@ If a part of the plan exists mainly for future-proofing rather than the next vis
 - [ ] Confirm polling remains sufficient.
 - [ ] Confirm raw per-run command entry is removed from the run creation UX.
 - [ ] Confirm no YAML engines, planner workflows, JSON APIs, MCP, browser extensions, inbox models, route-to actions, hosted routing, PTY embedding, or streaming transports will be added.
+- [ ] Add a minimal active-doc alignment update so `README.md`, `AGENTS.md`, and `docs/mvp-build-spec.md` no longer contradict this redesign pass.
 
 ### Verification checklist
 - [ ] All builders are working from the same narrow scope.
 - [ ] No persistence future-proofing work is planned beyond the next visible UX.
 - [ ] The redesign remains CLI-first under the hood.
+- [ ] Active docs point builders to this redesign checklist while the broader rewrite is still in progress.
 
 ### Exit checklist
 - [ ] Scope is locked.
