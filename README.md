@@ -33,3 +33,35 @@ Do not add:
 - cloud/multi-user features
 
 If a future agent finds an attractive idea in the archive, it should not pull it into the MVP unless the active spec is updated first.
+
+## Local Setup
+
+Requirements: Python 3.11+
+
+```bash
+cd /path/to/ChatMasala
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+cp .env.example .env
+uvicorn app.main:app --reload
+```
+
+Open http://127.0.0.1:8000 in your browser.
+
+## Running Tests
+
+```bash
+source .venv/bin/activate
+python -m pytest tests/ -v
+```
+
+## What It Does
+
+ChatMasala orchestrates two CLI AI agents (builder and reviewer) on your local machine. You provide:
+- A task description
+- A plan
+- A builder CLI command (e.g. `claude --print`)
+- A reviewer CLI command
+
+The app sends prompts via stdin and reads structured output from stdout. Routing between agents is deterministic — no manual copy-paste needed.

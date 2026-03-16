@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}ChatMasala — Settings{% endblock %}
+
+{% block sidebar_runs %}
+{% for thread in threads %}
+<a href="/threads/{{ thread.id }}" class="run-item">
+  <span class="run-item-title">{{ thread.title | truncate(28, True) }}</span>
+  <span class="run-item-meta">
+    <span class="status-dot status-dot-{{ thread.status }}"></span>
+    <span class="run-item-time">{{ thread.updated_at.strftime("%m/%d %H:%M") if thread.updated_at else "" }}</span>
+  </span>
+</a>
+{% endfor %}
+{% endblock %}
+
+{% block content %}
+<div class="form-page">
+  <div class="form-page-header">
+    <h1>Agent Settings</h1>
+    <a href="/" class="btn btn-ghost">&larr; Back</a>
+  </div>
+
+  <p class="settings-desc">Configure the default agent commands used for all new runs. You can override these per-run in the advanced options.</p>
+
+  <form method="post" action="/settings" class="run-form">
+    <div class="form-group">
+      <label for="builder_command">Builder Command</label>
+      <input type="text" id="builder_command" name="builder_command"
+        value="{{ settings.builder_command }}"
+        placeholder="e.g. claude --print"
+        required>
+      <span class="field-hint">The CLI command used to invoke the builder agent.</span>
+    </div>
+
+    <div class="form-group">
+      <label for="reviewer_command">Reviewer Command</label>
+      <input type="text" id="reviewer_command" name="reviewer_command"
+        value="{{ settings.reviewer_command }}"
+        placeholder="e.g. claude --print"
+        required>
+      <span class="field-hint">The CLI command used to invoke the reviewer agent.</span>
+    </div>
+
+    <div class="form-group">
+      <label for="default_working_directory">Default Working Directory <span class="label-hint optional">(optional)</span></label>
+      <input type="text" id="default_working_directory" name="default_working_directory"
+        value="{{ settings.default_working_directory }}"
+        placeholder="e.g. /Users/you/projects/myapp">
+      <span class="field-hint">Default directory for agent processes. Leave blank to use the server's working directory.</span>
+    </div>
+
+    <div class="form-group">
+      <label for="default_max_rounds">Default Max Rounds</label>
+      <input type="number" id="default_max_rounds" name="default_max_rounds"
+        value="{{ settings.default_max_rounds }}"
+        min="1" max="20">
+      <span class="field-hint">Maximum number of builder/reviewer round-trips per run.</span>
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">Save Settings</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

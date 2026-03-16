@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}ChatMasala{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/main.css">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <span class="logo">🌶 ChatMasala</span>
+        <a href="/settings" class="settings-link" title="Settings">⚙</a>
+      </div>
+      <div class="sidebar-section-label">Runs</div>
+      <nav class="run-list">
+        {% block sidebar_runs %}{% endblock %}
+      </nav>
+      <div class="sidebar-footer">
+        <a href="/threads/new" class="new-run-btn">+ New Run</a>
+      </div>
+    </aside>
+    <main class="main-content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  <script src="/static/main.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

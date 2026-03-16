@@ -14,12 +14,12 @@
 - Keep scope to the MVP only.
 
 ## Pass Status Overview
-- [ ] Pass 0 — Scope Lock and Build Contract
-- [ ] Pass 1 — Repo Foundation and Local Setup
-- [ ] Pass 2 — Data Model, Contracts, and Persistence
-- [ ] Pass 3 — Core Backend and Service Flows
-- [ ] Pass 4 — Frontend and End-to-End MVP Flows
-- [ ] Pass 5 — Hardening, QA, and Documentation Sync
+- [x] Pass 0 — Scope Lock and Build Contract
+- [x] Pass 1 — Repo Foundation and Local Setup
+- [x] Pass 2 — Data Model, Contracts, and Persistence
+- [x] Pass 3 — Core Backend and Service Flows
+- [x] Pass 4 — Frontend and End-to-End MVP Flows
+- [x] Pass 5 — Hardening, QA, and Documentation Sync
 
 ---
 
@@ -177,29 +177,29 @@
 **Goal:** stabilize the MVP, close obvious gaps, and leave the active docs accurate.
 
 ### Builder checklist
-- [ ] Run the full project build.
-- [ ] Run lint across the changed code.
-- [ ] Run automated tests across the changed code.
-- [ ] Fix critical defects and regressions found during testing.
-- [ ] Add regression tests for any bugs fixed in this pass.
-- [ ] Review edge cases in the highest-risk flows from the MVP spec.
-- [ ] Remove dead code, stale comments, and abandoned experiments from the implementation path.
-- [ ] Update `README.md` if setup, usage, or architecture guidance changed.
-- [ ] Update active docs in `docs/` if implementation details changed from the prior plan.
-- [ ] Confirm that deprecated docs in `docs/archive/**` remain unused and untouched as source-of-truth inputs.
+- [x] Run the full project build.
+- [x] Run lint across the changed code.
+- [x] Run automated tests across the changed code.
+- [x] Fix critical defects and regressions found during testing.
+- [x] Add regression tests for any bugs fixed in this pass.
+- [x] Review edge cases in the highest-risk flows from the MVP spec.
+- [x] Remove dead code, stale comments, and abandoned experiments from the implementation path.
+- [x] Update `README.md` if setup, usage, or architecture guidance changed.
+- [x] Update active docs in `docs/` if implementation details changed from the prior plan.
+- [x] Confirm that deprecated docs in `docs/archive/**` remain unused and untouched as source-of-truth inputs.
 
 ### Verification checklist
-- [ ] Build passes.
-- [ ] Lint passes.
-- [ ] Tests pass.
-- [ ] Main manual smoke flows succeed.
-- [ ] Active docs match shipped behavior.
-- [ ] No known critical blocker remains for MVP release.
+- [x] Build passes.
+- [x] Lint passes.
+- [x] Tests pass.
+- [x] Main manual smoke flows succeed.
+- [x] Active docs match shipped behavior.
+- [x] No known critical blocker remains for MVP release.
 
 ### Exit checklist
-- [ ] The MVP is stable enough to hand off, demo, or release.
-- [ ] Documentation reflects reality.
-- [ ] Builder work is complete for the current MVP scope.
+- [x] The MVP is stable enough to hand off, demo, or release.
+- [x] Documentation reflects reality.
+- [x] Builder work is complete for the current MVP scope.
 
 ---
 

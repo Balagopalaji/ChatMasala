@@ -1,0 +1,251 @@
+{% extends "base.html" %}
+
+{% block title %}ChatMasala — {{ thread.title }}{% endblock %}
+
+{% block head %}
+{% if thread.status in ("running", "waiting_for_agent") %}
+<meta http-equiv="refresh" content="4">
+{% endif %}
+{% endblock %}
+
+{% block sidebar_runs %}
+{% for t in threads %}
+<a href="/threads/{{ t.id }}" class="run-item{% if t.id == thread.id %} run-item-active{% endif %}">
+  <span class="run-item-title">{{ t.title | truncate(28, True) }}</span>
+  <span class="run-item-meta">
+    <span class="status-dot status-dot-{{ t.status }}"></span>
+    <span class="run-item-time">{{ t.updated_at.strftime("%m/%d %H:%M") if t.updated_at else "" }}</span>
+  </span>
+</a>
+{% endfor %}
+{% endblock %}
+
+{% block content %}
+<div class="detail-page">
+
+  <!-- Header bar -->
+  <div class="detail-header">
+    <div class="detail-header-left">
+      <h1 class="detail-title">{{ thread.title }}</h1>
+      <span class="status-badge status-{{ thread.status }}">{{ thread.status }}</span>
+      <span class="round-counter">Round {{ thread.round_count }}/{{ thread.max_rounds }}</span>
+    </div>
+    <div class="controls">
+      {% if thread.status == "draft" %}
+      <form method="post" action="/threads/{{ thread.id }}/start">
+        <button type="submit" class="btn btn-primary">▶ Start</button>
+      </form>
+      {% endif %}
+
+      {% if thread.status in ("running", "waiting_for_agent") %}
+      <form method="post" action="/threads/{{ thread.id }}/pause">
+        <button type="submit" class="btn btn-warning">⏸ Pause</button>
+      </form>
+      {% endif %}
+
+      {% if thread.status == "paused" %}
+      <form method="post" action="/threads/{{ thread.id }}/resume">
+        <button type="submit" class="btn btn-primary">▶ Resume</button>
+      </form>
+      {% endif %}
+
+      {% if thread.status == "waiting_for_user" %}
+      <form method="post" action="/threads/{{ thread.id }}/continue">
+        <button type="submit" class="btn btn-primary">▶ Continue</button>
+      </form>
+      {% endif %}
+
+      {% if thread.status not in ("done", "failed", "draft") %}
+      <form method="post" action="/threads/{{ thread.id }}/stop">
+        <button type="submit" class="btn btn-danger">■ Stop</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if thread.last_error %}
+  <div class="error-box">
+    <strong>Error:</strong> {{ thread.last_error }}
+  </div>
+  {% endif %}
+
+  <!-- Two-column agent conversation view -->
+  <div class="agent-columns">
+    <!-- Builder column -->
+    <div class="agent-col">
+      <div class="agent-col-header agent-col-header-builder">
+        <span class="agent-col-icon">🔨</span>
+        <span class="agent-col-name">Builder</span>
+        {% set builder_turns = turns | selectattr("role", "equalto", "builder") | list %}
+        {% if builder_turns %}
+        <span class="status-badge status-{{ builder_turns[-1].status }}">{{ builder_turns[-1].status }}</span>
+        {% endif %}
+      </div>
+      <div class="agent-col-body" id="builder-col">
+        {% set builder_turns = turns | selectattr("role", "equalto", "builder") | list %}
+        {% if builder_turns %}
+          {% for turn in builder_turns %}
+          <div class="chat-bubble bubble-builder">
+            <div class="bubble-meta">
+              <span class="bubble-role">Builder</span>
+              <span class="bubble-seq">#{{ turn.sequence_number }}</span>
+              <span class="status-badge status-{{ turn.status }}">{{ turn.status }}</span>
+              {% if turn.ended_at %}
+              <span class="bubble-time">{{ turn.ended_at.strftime("%H:%M:%S") }}</span>
+              {% elif turn.started_at %}
+              <span class="bubble-time">{{ turn.started_at.strftime("%H:%M:%S") }}</span>
+              {% endif %}
+            </div>
+
+            {% if turn.status == "running" %}
+            <div class="thinking">Thinking...</div>
+            {% endif %}
+
+            {% if turn.parsed_json %}
+            {% set parsed = turn.parsed_json | from_json %}
+            <div class="parsed-summary">
+              {% if parsed.status is defined %}
+              <div class="parsed-row"><span class="parsed-key">Status</span><span class="parsed-val">{{ parsed.status }}</span></div>
+              {% endif %}
+              {% if parsed.summary is defined %}
+              <div class="parsed-row"><span class="parsed-key">Summary</span><span class="parsed-val">{{ parsed.summary }}</span></div>
+              {% endif %}
+              {% if parsed.blockers is defined and parsed.blockers %}
+              <div class="parsed-row"><span class="parsed-key">Blockers</span><span class="parsed-val">{{ parsed.blockers }}</span></div>
+              {% endif %}
+              {% if parsed.handoff_note is defined %}
+              <div class="parsed-row"><span class="parsed-key">Handoff</span><span class="parsed-val">{{ parsed.handoff_note }}</span></div>
+              {% endif %}
+              {% if parsed.changed_artifacts is defined %}
+              <div class="parsed-row"><span class="parsed-key">Changed</span><span class="parsed-val">{{ parsed.changed_artifacts }}</span></div>
+              {% endif %}
+              {% if parsed.checks_run is defined %}
+              <div class="parsed-row"><span class="parsed-key">Checks</span><span class="parsed-val">{{ parsed.checks_run }}</span></div>
+              {% endif %}
+            </div>
+            {% endif %}
+
+            <details class="bubble-details">
+              <summary>View prompt sent</summary>
+              <pre>{{ turn.prompt_text }}</pre>
+            </details>
+
+            {% if turn.raw_output_text %}
+            <details class="bubble-details">
+              <summary>View raw output</summary>
+              <pre>{{ turn.raw_output_text }}</pre>
+            </details>
+            {% endif %}
+          </div>
+          {% endfor %}
+        {% else %}
+        <p class="empty-state">No turns yet.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Reviewer column -->
+    <div class="agent-col">
+      <div class="agent-col-header agent-col-header-reviewer">
+        <span class="agent-col-icon">🔍</span>
+        <span class="agent-col-name">Reviewer</span>
+        {% set reviewer_turns = turns | selectattr("role", "equalto", "reviewer") | list %}
+        {% if reviewer_turns %}
+        <span class="status-badge status-{{ reviewer_turns[-1].status }}">{{ reviewer_turns[-1].status }}</span>
+        {% endif %}
+      </div>
+      <div class="agent-col-body" id="reviewer-col">
+        {% set reviewer_turns = turns | selectattr("role", "equalto", "reviewer") | list %}
+        {% if reviewer_turns %}
+          {% for turn in reviewer_turns %}
+          <div class="chat-bubble bubble-reviewer">
+            <div class="bubble-meta">
+              <span class="bubble-role">Reviewer</span>
+              <span class="bubble-seq">#{{ turn.sequence_number }}</span>
+              <span class="status-badge status-{{ turn.status }}">{{ turn.status }}</span>
+              {% if turn.ended_at %}
+              <span class="bubble-time">{{ turn.ended_at.strftime("%H:%M:%S") }}</span>
+              {% elif turn.started_at %}
+              <span class="bubble-time">{{ turn.started_at.strftime("%H:%M:%S") }}</span>
+              {% endif %}
+            </div>
+
+            {% if turn.status == "running" %}
+            <div class="thinking">Thinking...</div>
+            {% endif %}
+
+            {% if turn.parsed_json %}
+            {% set parsed = turn.parsed_json | from_json %}
+            <div class="parsed-summary">
+              {% if parsed.verdict is defined %}
+              <div class="parsed-row"><span class="parsed-key">Verdict</span><span class="parsed-val">{{ parsed.verdict }}</span></div>
+              {% endif %}
+              {% if parsed.summary is defined %}
+              <div class="parsed-row"><span class="parsed-key">Summary</span><span class="parsed-val">{{ parsed.summary }}</span></div>
+              {% endif %}
+              {% if parsed.open_issues is defined and parsed.open_issues %}
+              <div class="parsed-row"><span class="parsed-key">Issues</span><span class="parsed-val">{{ parsed.open_issues }}</span></div>
+              {% endif %}
+              {% if parsed.rationale is defined %}
+              <div class="parsed-row"><span class="parsed-key">Rationale</span><span class="parsed-val">{{ parsed.rationale }}</span></div>
+              {% endif %}
+              {% if parsed.checks_verified is defined %}
+              <div class="parsed-row"><span class="parsed-key">Verified</span><span class="parsed-val">{{ parsed.checks_verified }}</span></div>
+              {% endif %}
+              {% if parsed.next_action is defined %}
+              <div class="parsed-row"><span class="parsed-key">Next</span><span class="parsed-val">{{ parsed.next_action }}</span></div>
+              {% endif %}
+            </div>
+            {% endif %}
+
+            <details class="bubble-details">
+              <summary>View prompt sent</summary>
+              <pre>{{ turn.prompt_text }}</pre>
+            </details>
+
+            {% if turn.raw_output_text %}
+            <details class="bubble-details">
+              <summary>View raw output</summary>
+              <pre>{{ turn.raw_output_text }}</pre>
+            </details>
+            {% endif %}
+          </div>
+          {% endfor %}
+        {% else %}
+        <p class="empty-state">No turns yet.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- User notes -->
+  {% if user_notes %}
+  <div class="notes-history">
+    <h3 class="notes-history-heading">Notes</h3>
+    <ul class="notes-list">
+      {% for note in user_notes %}
+      <li class="note-item">
+        <span class="note-time">{{ note.created_at.strftime("%Y-%m-%d %H:%M:%S") if note.created_at else "" }}</span>
+        <p class="note-text">{{ note.note_text }}</p>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% else %}
+  <p class="empty-state" style="padding: 0 0 1rem 0;">No notes yet.</p>
+  {% endif %}
+
+  <!-- Note bar (sticky bottom) -->
+  {% if thread.status in ("waiting_for_user", "paused", "running") %}
+  <div class="note-bar">
+    <form method="post" action="/threads/{{ thread.id }}/notes" class="note-bar-form">
+      <textarea name="note_text" rows="2"
+        placeholder="Add a note to guide the next agent turn..."
+        class="note-bar-input" required></textarea>
+      <button type="submit" class="btn btn-primary">Send Note</button>
+    </form>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
