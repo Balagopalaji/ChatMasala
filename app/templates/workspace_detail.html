@@ -10,26 +10,6 @@
 {% endblock %}
 
 {% block head %}
-{% set any_running = workspace.nodes | selectattr("status", "equalto", "running") | list | length > 0 %}
-{% if any_running %}
-<script>
-// Only reload when a node is running. Skip reload if the user is actively typing.
-(function() {
-  function hasUnsavedInput() {
-    return Array.from(document.querySelectorAll('textarea, input[type="text"]'))
-      .some(el => el === document.activeElement && el.value.trim().length > 0);
-  }
-  setTimeout(function poll() {
-    if (!hasUnsavedInput()) {
-      location.reload();
-    } else {
-      // User is typing — check again in 2s
-      setTimeout(poll, 2000);
-    }
-  }, 3000);
-})();
-</script>
-{% endif %}
 <style>
 /* workspace_detail — all major styles live in main.css; minimal local overrides only */
 </style>
@@ -216,7 +196,7 @@
           {% endif %}
         {% endfor %}
         {% for msg in visible_msgs %}
-        <div class="chat-msg chat-msg-{{ msg.role }} chat-msg-kind-{{ msg.message_kind }} chat-msg-status-{{ msg.status }}">
+        <div class="chat-msg chat-msg-{{ msg.role }} chat-msg-kind-{{ msg.message_kind }} chat-msg-status-{{ msg.status }}" data-msg-id="{{ msg.id }}">
           {% if msg.source_node_id %}
           <span class="chat-msg-provenance">↩ imported from {{ node_names[msg.source_node_id] if msg.source_node_id in node_names else 'node ' ~ msg.source_node_id }}</span>
           {% endif %}
@@ -600,5 +580,152 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 });
+
+// ── AJAX status polling ──────────────────────────────────
+(function() {
+  var WS_ID = {{ workspace.id }};
+  var pollTimer = null;
+  // node_names passed from server for provenance display
+  var NODE_NAMES = {{ node_names | tojson }};
+
+  function statusLabel(status) {
+    if (status === 'idle') return 'Ready';
+    if (status === 'running') return 'Running…';
+    return 'Needs attention';
+  }
+
+  function renderMessage(msg) {
+    var div = document.createElement('div');
+    div.className = 'chat-msg chat-msg-' + msg.role +
+      ' chat-msg-kind-' + msg.message_kind +
+      ' chat-msg-status-' + msg.status;
+    div.dataset.msgId = msg.id;
+
+    if (msg.source_node_id) {
+      var prov = document.createElement('span');
+      prov.className = 'chat-msg-provenance';
+      prov.textContent = '↩ imported from ' + (NODE_NAMES[msg.source_node_id] || 'node ' + msg.source_node_id);
+      div.appendChild(prov);
+    }
+
+    var bubble = document.createElement('div');
+    bubble.className = 'chat-msg-bubble';
+    bubble.textContent = msg.content;
+    div.appendChild(bubble);
+    return div;
+  }
+
+  function poll() {
+    fetch('/workspaces/' + WS_ID + '/status')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var anyRunning = false;
+
+        data.nodes.forEach(function(node) {
+          if (node.status === 'running') anyRunning = true;
+
+          // Update status badge in panel header
+          var badge = document.querySelector('.chat-panel[id="node-' + node.id + '"] .chat-panel-status');
+          if (badge) {
+            badge.textContent = statusLabel(node.status);
+            badge.className = 'chat-panel-status status-' + node.status;
+          }
+
+          // Update chip status in workflow strip
+          var chipBadge = document.querySelector('.workflow-node-chip[data-node-id="' + node.id + '"] .workflow-node-chip-status');
+          if (chipBadge) {
+            chipBadge.textContent = statusLabel(node.status);
+            chipBadge.className = 'workflow-node-chip-status status-' + node.status;
+          }
+
+          // Update chip running class
+          var chip = document.querySelector('.workflow-node-chip[data-node-id="' + node.id + '"]');
+          if (chip) {
+            chip.classList.toggle('running', node.status === 'running');
+          }
+
+          // Update transcript — only add new messages, never remove existing ones
+          var transcript = document.getElementById('transcript-' + node.id);
+          if (!transcript) return;
+
+          // Remove thinking indicator first
+          var thinking = transcript.querySelector('.thinking-row');
+          if (thinking) thinking.remove();
+
+          // Remove empty state if messages exist
+          var emptyState = transcript.querySelector('.empty-state');
+
+          // Get existing rendered message IDs
+          var existingIds = new Set();
+          transcript.querySelectorAll('[data-msg-id]').forEach(function(el) {
+            existingIds.add(parseInt(el.dataset.msgId));
+          });
+
+          // Append any new messages
+          var wasAtBottom = transcript.scrollHeight - transcript.scrollTop <= transcript.clientHeight + 20;
+          var addedAny = false;
+
+          node.messages.forEach(function(msg) {
+            if (!existingIds.has(msg.id)) {
+              if (emptyState) { emptyState.remove(); emptyState = null; }
+              transcript.appendChild(renderMessage(msg));
+              addedAny = true;
+            } else {
+              // Update content of existing running message (streaming)
+              var existing = transcript.querySelector('[data-msg-id="' + msg.id + '"]');
+              if (existing) {
+                var bubble = existing.querySelector('.chat-msg-bubble');
+                if (bubble && bubble.textContent !== msg.content) {
+                  bubble.textContent = msg.content;
+                }
+                existing.className = 'chat-msg chat-msg-' + msg.role +
+                  ' chat-msg-kind-' + msg.message_kind +
+                  ' chat-msg-status-' + msg.status;
+              }
+            }
+          });
+
+          // Re-add thinking indicator if still running
+          if (node.status === 'running') {
+            var thinkingRow = document.createElement('div');
+            thinkingRow.className = 'thinking-row';
+            thinkingRow.innerHTML = '<div class="thinking-dots"><span></span><span></span><span></span></div><span>Thinking…</span>';
+            transcript.appendChild(thinkingRow);
+          }
+
+          // Show empty state if no messages and not running
+          if (node.messages.length === 0 && node.status !== 'running' && !transcript.querySelector('[data-msg-id]')) {
+            var ep = document.createElement('p');
+            ep.className = 'empty-state';
+            ep.style.cssText = 'text-align:center;font-size:13px;';
+            ep.textContent = 'No messages yet.';
+            transcript.appendChild(ep);
+          }
+
+          // Auto-scroll to bottom only if was already at bottom
+          if ((addedAny || node.status === 'running') && wasAtBottom) {
+            transcript.scrollTop = transcript.scrollHeight;
+          }
+        });
+
+        // Re-render loop brackets (loop_count may have changed)
+        if (typeof renderLoopBrackets === 'function') renderLoopBrackets();
+
+        // Schedule next poll
+        clearTimeout(pollTimer);
+        pollTimer = setTimeout(poll, anyRunning ? 2000 : 6000);
+      })
+      .catch(function() {
+        // On error, back off and retry
+        clearTimeout(pollTimer);
+        pollTimer = setTimeout(poll, 8000);
+      });
+  }
+
+  // Start polling after page loads
+  document.addEventListener('DOMContentLoaded', function() {
+    pollTimer = setTimeout(poll, 2000);
+  });
+})();
 </script>
 {% endblock %}

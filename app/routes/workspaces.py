@@ -4,7 +4,7 @@ import threading
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
@@ -129,6 +129,37 @@ async def workspace_detail(ws_id: int, request: Request, db: Session = Depends(g
         "loop_groups": loop_groups,
         "sandbox_path": sandbox_path,
     })
+
+
+@router.get("/workspaces/{ws_id}/status")
+async def workspace_status(ws_id: int, db: Session = Depends(get_db)):
+    """Lightweight polling endpoint — returns node statuses and latest messages."""
+    ws = db.query(Workspace).filter(Workspace.id == ws_id).first()
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    nodes = []
+    for node in ws.nodes:
+        msgs = [m for m in node.messages if m.conversation_version == node.conversation_version]
+        nodes.append({
+            "id": node.id,
+            "status": node.status,
+            "last_error": node.last_error,
+            "loop_count": node.loop_count,
+            "messages": [
+                {
+                    "id": m.id,
+                    "role": m.role,
+                    "message_kind": m.message_kind,
+                    "status": m.status,
+                    "content": m.content,
+                    "source_node_id": m.source_node_id,
+                }
+                for m in msgs
+            ],
+        })
+
+    return JSONResponse({"nodes": nodes})
 
 
 @router.post("/workspaces/{ws_id}/nodes")

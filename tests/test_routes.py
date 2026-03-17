@@ -970,3 +970,62 @@ def test_get_workspace_sandbox_creates_directory():
 
     # Cleanup
     shutil.rmtree(expected)
+
+
+def test_workspace_status_endpoint(client_and_db):
+    """GET /workspaces/{ws_id}/status returns JSON with node statuses and messages."""
+    from app.models import Workspace, ChatNode, ChatMessage
+
+    client, db = client_and_db
+
+    # Create a workspace with one node
+    ws = Workspace(title="Status Test WS")
+    db.add(ws)
+    db.commit()
+    db.refresh(ws)
+
+    node = ChatNode(workspace_id=ws.id, name="Node A", order_index=0, status="idle")
+    db.add(node)
+    db.commit()
+    db.refresh(node)
+
+    # Add a message in the current conversation version
+    msg = ChatMessage(
+        node_id=node.id,
+        sequence_number=1,
+        conversation_version=node.conversation_version,
+        role="user",
+        message_kind="manual_user",
+        content="Hello",
+        status="completed",
+    )
+    db.add(msg)
+    db.commit()
+    db.refresh(msg)
+
+    resp = client.get(f"/workspaces/{ws.id}/status")
+    assert resp.status_code == 200
+
+    data = resp.json()
+    assert "nodes" in data
+    assert len(data["nodes"]) == 1
+
+    node_data = data["nodes"][0]
+    assert node_data["id"] == node.id
+    assert node_data["status"] == "idle"
+    assert node_data["loop_count"] == 0
+
+    assert len(node_data["messages"]) == 1
+    msg_data = node_data["messages"][0]
+    assert msg_data["id"] == msg.id
+    assert msg_data["role"] == "user"
+    assert msg_data["content"] == "Hello"
+    assert msg_data["message_kind"] == "manual_user"
+    assert msg_data["status"] == "completed"
+    assert msg_data["source_node_id"] is None
+
+
+def test_workspace_status_endpoint_404(client):
+    """GET /workspaces/99999/status returns 404 for a non-existent workspace."""
+    resp = client.get("/workspaces/99999/status")
+    assert resp.status_code == 404
