@@ -128,7 +128,7 @@ def test_reset_increments_conversation_version(db):
     assert old is not None
 
 
-def test_downstream_route_captured(db):
+def test_output_route_captured(db):
     ws = Workspace(title="WS")
     db.add(ws)
     db.commit()
@@ -136,15 +136,47 @@ def test_downstream_route_captured(db):
     node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1)
     db.add_all([node_a, node_b])
     db.commit()
-    # Set route from A to B
-    node_a.downstream_node_id = node_b.id
+    # Set output route from A to B
+    node_a.output_node_id = node_b.id
     db.commit()
     db.refresh(node_a)
-    assert node_a.downstream_node_id == node_b.id
+    assert node_a.output_node_id == node_b.id
+
+
+def test_loop_route_captured(db):
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+    node_a = ChatNode(workspace_id=ws.id, name="A", order_index=0)
+    node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1)
+    db.add_all([node_a, node_b])
+    db.commit()
+    # Set loop route from A back to B
+    node_a.loop_node_id = node_b.id
+    node_a.max_loops = 5
+    db.commit()
+    db.refresh(node_a)
+    assert node_a.loop_node_id == node_b.id
+    assert node_a.max_loops == 5
+
+
+def test_loop_defaults(db):
+    """New ChatNode has max_loops=3, loop_count=0, loop_node_id=None, output_node_id=None."""
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+    node = ChatNode(workspace_id=ws.id, name="A", order_index=0)
+    db.add(node)
+    db.commit()
+    db.refresh(node)
+    assert node.output_node_id is None
+    assert node.loop_node_id is None
+    assert node.max_loops == 3
+    assert node.loop_count == 0
 
 
 def test_self_route_prevention(db):
-    """A node should not be allowed to route to itself."""
+    """A node should not be allowed to route to itself (output_node_id)."""
     ws = Workspace(title="WS")
     db.add(ws)
     db.commit()
@@ -153,10 +185,10 @@ def test_self_route_prevention(db):
     db.commit()
     # The route endpoint should prevent self-loop; simulate the logic
     proposed = node.id  # same as node id
-    did = int(proposed) if proposed else None
-    if did == node.id:
-        did = None
-    assert did is None
+    oid = int(proposed) if proposed else None
+    if oid == node.id:
+        oid = None
+    assert oid is None
 
 
 def test_nonzero_exit_marks_failed(db):
@@ -192,7 +224,7 @@ def test_nonzero_exit_marks_failed(db):
     fake_result = RunResult(stdout="", stderr="error: something went wrong", exit_code=1)
 
     with mock.patch("app.routes.workspaces.run_agent", return_value=fake_result):
-        _execute_node_send(node.id, msg.id, None, db)
+        _execute_node_send(node.id, msg.id, None, None, 3, 0, db)
 
     db.refresh(msg)
     db.refresh(node)
@@ -202,7 +234,7 @@ def test_nonzero_exit_marks_failed(db):
 
 
 def test_delete_node_clears_inbound_routes(db):
-    """Deleting a node should null out other nodes' downstream_node_id pointing to it."""
+    """Deleting a node should null out other nodes' output_node_id and loop_node_id pointing to it."""
     ws = Workspace(title="WS")
     db.add(ws)
     db.commit()
@@ -212,20 +244,26 @@ def test_delete_node_clears_inbound_routes(db):
     db.add_all([node_a, node_b])
     db.commit()
 
-    # Route A → B
-    node_a.downstream_node_id = node_b.id
+    # Route A → B via output_node_id and loop_node_id
+    node_a.output_node_id = node_b.id
+    node_a.loop_node_id = node_b.id
     db.commit()
 
     # Simulate the delete logic
     db.query(ChatNode).filter(
         ChatNode.workspace_id == ws.id,
-        ChatNode.downstream_node_id == node_b.id,
-    ).update({"downstream_node_id": None})
+        ChatNode.output_node_id == node_b.id,
+    ).update({"output_node_id": None})
+    db.query(ChatNode).filter(
+        ChatNode.workspace_id == ws.id,
+        ChatNode.loop_node_id == node_b.id,
+    ).update({"loop_node_id": None})
     db.delete(node_b)
     db.commit()
 
     db.refresh(node_a)
-    assert node_a.downstream_node_id is None
+    assert node_a.output_node_id is None
+    assert node_a.loop_node_id is None
 
 
 def test_cross_workspace_route_rejected(db):
@@ -271,3 +309,248 @@ def test_auto_route_cross_workspace_blocked(db):
 
     count = db.query(ChatMessage).filter(ChatMessage.node_id == node_b.id).count()
     assert count == 0  # nothing was injected
+
+
+def test_go_sentinel_routes_to_output_node(db):
+    """When loop_node_id is set and response ends with GO, message is delivered to output_node_id."""
+    import unittest.mock as mock
+    from app.routes.workspaces import _execute_node_send
+    from app.agents.cli_runner import RunResult
+
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+
+    profile = AgentProfile(name="P", provider="test", command_template="echo", instruction_file="")
+    db.add(profile)
+    db.commit()
+
+    node_a = ChatNode(workspace_id=ws.id, name="A", agent_profile_id=profile.id, order_index=0)
+    node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1)  # output target
+    node_c = ChatNode(workspace_id=ws.id, name="C", order_index=2)  # loop target
+    db.add_all([node_a, node_b, node_c])
+    db.commit()
+
+    node_a.output_node_id = node_b.id
+    node_a.loop_node_id = node_c.id
+    db.commit()
+
+    msg = ChatMessage(
+        node_id=node_a.id, sequence_number=1, conversation_version=1,
+        role="assistant", message_kind="assistant_reply", content="", status="running",
+    )
+    db.add(msg)
+    db.commit()
+
+    fake_result = RunResult(stdout="Here is my answer.\nGO", stderr="", exit_code=0)
+    with mock.patch("app.routes.workspaces.run_agent", return_value=fake_result):
+        _execute_node_send(node_a.id, msg.id, node_a.output_node_id, node_a.loop_node_id, node_a.max_loops, node_a.loop_count, db)
+
+    db.refresh(node_a)
+    db.refresh(msg)
+    assert node_a.status == "idle"
+    assert msg.status == "completed"
+    # Output node B should have received an auto_route message
+    routed = db.query(ChatMessage).filter(ChatMessage.node_id == node_b.id).first()
+    assert routed is not None
+    assert routed.message_kind == "auto_route"
+    # Loop node C should NOT have received anything
+    loop_msgs = db.query(ChatMessage).filter(ChatMessage.node_id == node_c.id).count()
+    assert loop_msgs == 0
+
+
+def test_no_go_sentinel_loops_back(db):
+    """When loop_node_id is set and response ends with NO_GO, message is delivered to loop_node_id."""
+    import unittest.mock as mock
+    from app.routes.workspaces import _execute_node_send
+    from app.agents.cli_runner import RunResult
+
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+
+    profile = AgentProfile(name="P2", provider="test", command_template="echo", instruction_file="")
+    db.add(profile)
+    db.commit()
+
+    node_a = ChatNode(workspace_id=ws.id, name="A", agent_profile_id=profile.id, order_index=0, max_loops=3, loop_count=0)
+    node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1)  # output target
+    node_c = ChatNode(workspace_id=ws.id, name="C", order_index=2)  # loop target (no agent — no auto-run)
+    db.add_all([node_a, node_b, node_c])
+    db.commit()
+
+    node_a.output_node_id = node_b.id
+    node_a.loop_node_id = node_c.id
+    db.commit()
+
+    msg = ChatMessage(
+        node_id=node_a.id, sequence_number=1, conversation_version=1,
+        role="assistant", message_kind="assistant_reply", content="", status="running",
+    )
+    db.add(msg)
+    db.commit()
+
+    fake_result = RunResult(stdout="Needs revision.\nNO_GO", stderr="", exit_code=0)
+    with mock.patch("app.routes.workspaces.run_agent", return_value=fake_result):
+        # Patch threading to avoid real threads in tests
+        with mock.patch("app.routes.workspaces.threading") as mock_threading:
+            mock_threading.Thread.return_value.start = mock.MagicMock()
+            _execute_node_send(node_a.id, msg.id, node_a.output_node_id, node_a.loop_node_id, 3, 0, db)
+
+    db.refresh(node_a)
+    db.refresh(msg)
+    # loop_count should have been incremented to 1
+    assert node_a.loop_count == 1
+    # Node A should be idle (not at max loops yet)
+    assert node_a.status == "idle"
+    # Loop node C should have received the routed message
+    loop_msg = db.query(ChatMessage).filter(ChatMessage.node_id == node_c.id).first()
+    assert loop_msg is not None
+    assert loop_msg.message_kind == "auto_route"
+    # Output node B should NOT have received anything
+    output_msgs = db.query(ChatMessage).filter(ChatMessage.node_id == node_b.id).count()
+    assert output_msgs == 0
+
+
+def test_no_go_max_loops_reached(db):
+    """When NO_GO and loop_count >= max_loops, node is set to needs_attention."""
+    import unittest.mock as mock
+    from app.routes.workspaces import _execute_node_send
+    from app.agents.cli_runner import RunResult
+
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+
+    profile = AgentProfile(name="P3", provider="test", command_template="echo", instruction_file="")
+    db.add(profile)
+    db.commit()
+
+    node_a = ChatNode(workspace_id=ws.id, name="A", agent_profile_id=profile.id, order_index=0, max_loops=3, loop_count=2)
+    node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1)  # output
+    node_c = ChatNode(workspace_id=ws.id, name="C", order_index=2)  # loop
+    db.add_all([node_a, node_b, node_c])
+    db.commit()
+
+    node_a.output_node_id = node_b.id
+    node_a.loop_node_id = node_c.id
+    db.commit()
+
+    msg = ChatMessage(
+        node_id=node_a.id, sequence_number=1, conversation_version=1,
+        role="assistant", message_kind="assistant_reply", content="", status="running",
+    )
+    db.add(msg)
+    db.commit()
+
+    fake_result = RunResult(stdout="Still not good.\nNO_GO", stderr="", exit_code=0)
+    with mock.patch("app.routes.workspaces.run_agent", return_value=fake_result):
+        _execute_node_send(node_a.id, msg.id, node_a.output_node_id, node_a.loop_node_id, 3, 2, db)
+
+    db.refresh(node_a)
+    assert node_a.status == "needs_attention"
+    assert "Max loops reached" in node_a.last_error
+    # Output node should have received message (circuit breaker routes to output)
+    routed = db.query(ChatMessage).filter(ChatMessage.node_id == node_b.id).first()
+    assert routed is not None
+
+
+def test_neither_sentinel_sets_needs_attention(db):
+    """When loop_node_id is set but response has neither GO nor NO_GO, sets needs_attention."""
+    import unittest.mock as mock
+    from app.routes.workspaces import _execute_node_send
+    from app.agents.cli_runner import RunResult
+
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+
+    profile = AgentProfile(name="P4", provider="test", command_template="echo", instruction_file="")
+    db.add(profile)
+    db.commit()
+
+    node_a = ChatNode(workspace_id=ws.id, name="A", agent_profile_id=profile.id, order_index=0)
+    node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1)
+    db.add_all([node_a, node_b])
+    db.commit()
+
+    node_a.loop_node_id = node_b.id
+    db.commit()
+
+    msg = ChatMessage(
+        node_id=node_a.id, sequence_number=1, conversation_version=1,
+        role="assistant", message_kind="assistant_reply", content="", status="running",
+    )
+    db.add(msg)
+    db.commit()
+
+    fake_result = RunResult(stdout="Here is some output without a sentinel.", stderr="", exit_code=0)
+    with mock.patch("app.routes.workspaces.run_agent", return_value=fake_result):
+        _execute_node_send(node_a.id, msg.id, None, node_a.loop_node_id, 3, 0, db)
+
+    db.refresh(node_a)
+    assert node_a.status == "needs_attention"
+    assert "GO or NO_GO" in node_a.last_error
+
+
+def test_no_loop_node_routes_unconditionally(db):
+    """Without loop_node_id, successful response routes to output_node_id unconditionally."""
+    import unittest.mock as mock
+    from app.routes.workspaces import _execute_node_send
+    from app.agents.cli_runner import RunResult
+
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+
+    profile = AgentProfile(name="P5", provider="test", command_template="echo", instruction_file="")
+    db.add(profile)
+    db.commit()
+
+    node_a = ChatNode(workspace_id=ws.id, name="A", agent_profile_id=profile.id, order_index=0)
+    node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1)
+    db.add_all([node_a, node_b])
+    db.commit()
+
+    node_a.output_node_id = node_b.id
+    db.commit()
+
+    msg = ChatMessage(
+        node_id=node_a.id, sequence_number=1, conversation_version=1,
+        role="assistant", message_kind="assistant_reply", content="", status="running",
+    )
+    db.add(msg)
+    db.commit()
+
+    # Response does NOT contain GO or NO_GO — should still route because no loop
+    fake_result = RunResult(stdout="Here is the result without sentinels.", stderr="", exit_code=0)
+    with mock.patch("app.routes.workspaces.run_agent", return_value=fake_result):
+        _execute_node_send(node_a.id, msg.id, node_a.output_node_id, None, 3, 0, db)
+
+    db.refresh(node_a)
+    assert node_a.status == "idle"
+    routed = db.query(ChatMessage).filter(ChatMessage.node_id == node_b.id).first()
+    assert routed is not None
+    assert routed.message_kind == "auto_route"
+
+
+def test_reset_resets_loop_count(db):
+    """Resetting a node (incrementing conversation_version) also resets loop_count to 0."""
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+
+    node = ChatNode(workspace_id=ws.id, name="A", order_index=0, loop_count=2)
+    db.add(node)
+    db.commit()
+
+    # Simulate reset route logic
+    node.conversation_version += 1
+    node.status = "idle"
+    node.last_error = None
+    node.loop_count = 0
+    db.commit()
+    db.refresh(node)
+
+    assert node.conversation_version == 2
+    assert node.loop_count == 0

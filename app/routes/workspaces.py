@@ -1,4 +1,5 @@
 """Workspace routes — list, create, detail, node management."""
+import threading
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request
@@ -18,33 +19,62 @@ templates = Jinja2Templates(directory=BASE_DIR / "templates")
 @router.get("/workspaces", response_class=HTMLResponse)
 async def workspace_list(request: Request, db: Session = Depends(get_db)):
     workspaces = db.query(Workspace).order_by(Workspace.updated_at.desc()).all()
-    return templates.TemplateResponse(request, "workspace_list.html", {"workspaces": workspaces})
+    return templates.TemplateResponse(request, "workspace_list.html", {
+        "workspaces": workspaces,
+        "all_workspaces": workspaces,
+    })
 
 
-@router.get("/workspaces/new", response_class=HTMLResponse)
-async def new_workspace_form(request: Request, db: Session = Depends(get_db)):
-    return templates.TemplateResponse(request, "workspace_new.html", {})
-
-
-@router.post("/workspaces")
-def create_workspace(
-    request: Request,
-    title: str = Form(...),
-    workspace_path: str = Form(""),
+@router.post("/workspaces/new")
+def create_workspace_immediate(
     db: Session = Depends(get_db),
 ):
-    ws = Workspace(
-        title=title.strip(),
-        workspace_path=workspace_path.strip() or None,
-    )
+    """Create a workspace immediately with defaults, then redirect to it."""
+    ws = Workspace(title="New Workspace", workspace_path=None)
     db.add(ws)
     db.commit()
     db.refresh(ws)
     # Auto-create one default node
     node = ChatNode(workspace_id=ws.id, name="Node 1", order_index=0)
+    # Assign the claude_default builtin agent, falling back to any builtin
+    default_agent = db.query(AgentProfile).filter(
+        AgentProfile.builtin_key == "claude_default"
+    ).first() or db.query(AgentProfile).filter(
+        AgentProfile.is_builtin == True  # noqa: E712
+    ).order_by(AgentProfile.sort_order, AgentProfile.name).first()
+    if default_agent:
+        node.agent_profile_id = default_agent.id
     db.add(node)
     db.commit()
     return RedirectResponse(f"/workspaces/{ws.id}", status_code=303)
+
+
+@router.post("/workspaces/{ws_id}/set-path")
+def set_workspace_path(
+    ws_id: int,
+    workspace_path: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    ws = db.query(Workspace).filter(Workspace.id == ws_id).first()
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    ws.workspace_path = workspace_path.strip() or None
+    db.commit()
+    return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
+
+
+@router.post("/workspaces/{ws_id}/rename")
+def rename_workspace(
+    ws_id: int,
+    title: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    ws = db.query(Workspace).filter(Workspace.id == ws_id).first()
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    ws.title = title.strip() or ws.title
+    db.commit()
+    return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
 
 
 @router.get("/workspaces/{ws_id}", response_class=HTMLResponse)
@@ -55,11 +85,32 @@ async def workspace_detail(ws_id: int, request: Request, db: Session = Depends(g
     profiles = db.query(AgentProfile).order_by(AgentProfile.sort_order, AgentProfile.name).all()
     all_workspaces = db.query(Workspace).order_by(Workspace.updated_at.desc()).all()
     node_names = {n.id: n.name for n in ws.nodes}
+
+    # Pre-compute loop group ranges for the workflow strip.
+    # A loop group spans from min(source_idx, target_idx) to max(source_idx, target_idx)
+    # so backward loops (target before source) are handled correctly.
+    LOOP_COLORS = ["orange", "blue", "purple", "green"]  # symbolic names only
+    node_index = {n.id: i for i, n in enumerate(ws.nodes)}
+    loop_groups = []
+    for i, node in enumerate(ws.nodes):
+        if node.loop_node_id:
+            tgt_idx = node_index.get(node.loop_node_id)
+            if tgt_idx is not None:
+                color_idx = len(loop_groups) % 4  # cycle through 4 colors
+                loop_groups.append({
+                    "start": min(i, tgt_idx),
+                    "end": max(i, tgt_idx),
+                    "max_loops": node.max_loops,
+                    "loop_count": node.loop_count,
+                    "color_idx": color_idx,
+                })
+
     return templates.TemplateResponse(request, "workspace_detail.html", {
         "workspace": ws,
         "profiles": profiles,
         "all_workspaces": all_workspaces,
         "node_names": node_names,
+        "loop_groups": loop_groups,
     })
 
 
@@ -73,8 +124,24 @@ def add_node(
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
     max_order = max((n.order_index for n in ws.nodes), default=-1)
+    # Remember existing nodes before adding the new one
+    existing_nodes = sorted(ws.nodes, key=lambda n: n.order_index)
     node = ChatNode(workspace_id=ws_id, name=name.strip() or "New Node", order_index=max_order + 1)
+    # Assign the claude_default builtin agent, falling back to any builtin
+    default_agent = db.query(AgentProfile).filter(
+        AgentProfile.builtin_key == "claude_default"
+    ).first() or db.query(AgentProfile).filter(
+        AgentProfile.is_builtin == True  # noqa: E712
+    ).order_by(AgentProfile.sort_order, AgentProfile.name).first()
+    if default_agent:
+        node.agent_profile_id = default_agent.id
     db.add(node)
+    db.flush()  # get node.id
+    # Auto-link the previous last node's output to the new node
+    if existing_nodes:
+        prev = existing_nodes[-1]
+        if prev.output_node_id is None:
+            prev.output_node_id = node.id
     db.commit()
     return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
 
@@ -107,11 +174,15 @@ def delete_node(
         raise HTTPException(status_code=404, detail="Node not found")
     if node.status == "running":
         raise HTTPException(status_code=400, detail="Cannot delete a running node")
-    # Clear inbound routes from sibling nodes pointing to this node
+    # Clear inbound routes from sibling nodes pointing to this node (output_node_id and loop_node_id)
     db.query(ChatNode).filter(
         ChatNode.workspace_id == ws_id,
-        ChatNode.downstream_node_id == node_id,
-    ).update({"downstream_node_id": None})
+        ChatNode.output_node_id == node_id,
+    ).update({"output_node_id": None})
+    db.query(ChatNode).filter(
+        ChatNode.workspace_id == ws_id,
+        ChatNode.loop_node_id == node_id,
+    ).update({"loop_node_id": None})
     db.delete(node)
     db.commit()
     return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
@@ -140,24 +211,52 @@ def set_node_agent(
 def set_node_route(
     ws_id: int,
     node_id: int,
-    downstream_node_id: str = Form(""),
+    output_node_id: str = Form(""),
     db: Session = Depends(get_db),
 ):
     node = db.query(ChatNode).filter(ChatNode.id == node_id, ChatNode.workspace_id == ws_id).first()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
     try:
-        did = int(downstream_node_id) if downstream_node_id else None
+        oid = int(output_node_id) if output_node_id else None
     except ValueError:
-        did = None
+        oid = None
     # Prevent self-loop
-    if did == node_id:
-        did = None
-    if did is not None:
-        target = db.query(ChatNode).filter(ChatNode.id == did).first()
+    if oid == node_id:
+        oid = None
+    if oid is not None:
+        target = db.query(ChatNode).filter(ChatNode.id == oid).first()
         if not target or target.workspace_id != ws_id:
             raise HTTPException(status_code=400, detail="Route target must be in the same workspace")
-    node.downstream_node_id = did
+    node.output_node_id = oid
+    db.commit()
+    return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
+
+
+@router.post("/workspaces/{ws_id}/nodes/{node_id}/loop-route")
+def set_node_loop_route(
+    ws_id: int,
+    node_id: int,
+    loop_node_id: str = Form(""),
+    max_loops: int = Form(3),
+    db: Session = Depends(get_db),
+):
+    node = db.query(ChatNode).filter(ChatNode.id == node_id, ChatNode.workspace_id == ws_id).first()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    try:
+        lid = int(loop_node_id) if loop_node_id else None
+    except ValueError:
+        lid = None
+    # Prevent self-loop
+    if lid == node_id:
+        lid = None
+    if lid is not None:
+        target = db.query(ChatNode).filter(ChatNode.id == lid).first()
+        if not target or target.workspace_id != ws_id:
+            raise HTTPException(status_code=400, detail="Loop target must be in the same workspace")
+    node.loop_node_id = lid
+    node.max_loops = max(1, max_loops)
     db.commit()
     return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
 
@@ -181,8 +280,11 @@ def send_message(
     if not content:
         return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
 
-    # Capture route target at send time
-    downstream_node_id = node.downstream_node_id
+    # Capture route targets at send time
+    output_node_id = node.output_node_id
+    loop_node_id = node.loop_node_id
+    max_loops = node.max_loops
+    loop_count = node.loop_count
 
     # Next sequence number
     last = db.query(ChatMessage).filter(
@@ -222,7 +324,7 @@ def send_message(
     def bg_send():
         bg_db = SessionLocal()
         try:
-            _execute_node_send(node_id, asst_msg_id, downstream_node_id, bg_db)
+            _execute_node_send(node_id, asst_msg_id, output_node_id, loop_node_id, max_loops, loop_count, bg_db)
         finally:
             bg_db.close()
 
@@ -244,6 +346,7 @@ def reset_node(
     node.conversation_version += 1
     node.status = "idle"
     node.last_error = None
+    node.loop_count = 0
     db.commit()
     return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
 
@@ -316,8 +419,12 @@ def import_last_message(
 # ---------------------------------------------------------------------------
 
 
-def _execute_node_send(node_id: int, asst_msg_id: int, downstream_node_id, db):
-    """Execute CLI agent for a node send and update the assistant message."""
+def _execute_node_send(node_id: int, asst_msg_id: int, output_node_id, loop_node_id, max_loops, loop_count, db):
+    """Execute CLI agent for a node send and update the assistant message.
+
+    After success, applies GO/NO_GO sentinel detection if loop_node_id is set.
+    If no loop_node_id, routes unconditionally to output_node_id (message delivery only).
+    """
     from datetime import datetime, timezone
 
     node = db.query(ChatNode).filter(ChatNode.id == node_id).first()
@@ -382,29 +489,148 @@ def _execute_node_send(node_id: int, asst_msg_id: int, downstream_node_id, db):
         node.last_error = error_detail
         db.commit()
         # Do NOT auto-route failed output
-    else:
-        asst_msg.content = result.stdout.strip() or "[Agent returned empty output]"
-        asst_msg.status = "completed"
-        asst_msg.completed_at = datetime.now(timezone.utc)
+        return
+
+    # Success path
+    content = result.stdout.strip() or "[Agent returned empty output]"
+    asst_msg.content = content
+    asst_msg.status = "completed"
+    asst_msg.completed_at = datetime.now(timezone.utc)
+
+    if not loop_node_id:
+        # No loop configured — route unconditionally to output_node_id (message delivery only)
         node.status = "idle"
         node.last_error = None
         db.commit()
-        # Auto-route only on success
-        if downstream_node_id:
-            _deliver_auto_route(node_id, asst_msg_id, downstream_node_id, db)
+        if output_node_id:
+            _deliver_auto_route(node_id, asst_msg_id, output_node_id, db)
+        return
+
+    # Loop mode — check sentinel in final non-empty trimmed line
+    lines = [ln.strip() for ln in content.splitlines() if ln.strip()]
+    final_line = lines[-1].lower() if lines else ""
+
+    if final_line == "go":
+        # GO: route to output_node, stay idle
+        node.status = "idle"
+        node.last_error = None
+        db.commit()
+        if output_node_id:
+            _deliver_auto_route(node_id, asst_msg_id, output_node_id, db)
+        return
+
+    if final_line == "no_go":
+        # Read fresh loop_count from DB to avoid stale data
+        fresh_node = db.query(ChatNode).filter(ChatNode.id == node_id).first()
+        new_loop_count = (fresh_node.loop_count if fresh_node else loop_count) + 1
+        if fresh_node:
+            fresh_node.loop_count = new_loop_count
+            node = fresh_node
+
+        if new_loop_count >= max_loops:
+            # Circuit breaker — stop looping
+            if output_node_id:
+                error_msg = "Max loops reached"
+            else:
+                error_msg = "Max loops reached — no output node configured"
+            node.status = "needs_attention"
+            node.last_error = error_msg
+            db.commit()
+            if output_node_id:
+                _deliver_auto_route(node_id, asst_msg_id, output_node_id, db)
+            return
+
+        # Loop back — deliver to loop_node_id, then auto-run it
+        # Check if loop target is already running before committing
+        loop_target = db.query(ChatNode).filter(ChatNode.id == loop_node_id).first()
+        if loop_target and loop_target.status == "running":
+            # Deliver the message but do NOT auto-run; set source to needs_attention
+            node.status = "needs_attention"
+            node.last_error = "Loop target is already running — manual retry required once it finishes."
+            db.commit()
+            _deliver_auto_route(node_id, asst_msg_id, loop_node_id, db)
+            return
+
+        # Normal loop-back
+        node.status = "idle"
+        node.last_error = None
+        db.commit()
+        routed_msg_id = _deliver_auto_route(node_id, asst_msg_id, loop_node_id, db)
+
+        # Auto-run loop target in a new background thread with its own DB session
+        from app.db import SessionLocal
+        t = threading.Thread(
+            target=_auto_run_node,
+            args=(loop_node_id, SessionLocal),
+            daemon=True,
+        )
+        t.start()
+        return
+
+    # Neither GO nor NO_GO sentinel
+    node.status = "needs_attention"
+    node.last_error = "Looped node did not end with GO or NO_GO"
+    db.commit()
+
+
+def _auto_run_node(target_node_id: int, session_factory):
+    """Open a new DB session and auto-run the target node with its existing conversation history."""
+    from datetime import datetime, timezone
+
+    bg_db = session_factory()
+    try:
+        node = bg_db.query(ChatNode).filter(ChatNode.id == target_node_id).first()
+        if not node:
+            return
+        if not node.agent_profile_id:
+            node.status = "needs_attention"
+            node.last_error = "No agent assigned — auto-run skipped"
+            bg_db.commit()
+            return
+
+        # Next sequence number
+        last = bg_db.query(ChatMessage).filter(
+            ChatMessage.node_id == target_node_id,
+            ChatMessage.conversation_version == node.conversation_version,
+        ).order_by(ChatMessage.sequence_number.desc()).first()
+        next_seq = (last.sequence_number + 1) if last else 1
+
+        asst_msg = ChatMessage(
+            node_id=target_node_id,
+            sequence_number=next_seq,
+            conversation_version=node.conversation_version,
+            role="assistant",
+            message_kind="assistant_reply",
+            content="",
+            status="running",
+        )
+        bg_db.add(asst_msg)
+        node.status = "running"
+        bg_db.commit()
+        bg_db.refresh(asst_msg)
+
+        # Capture route params from the node at this moment
+        output_node_id = node.output_node_id
+        loop_node_id = node.loop_node_id
+        max_loops = node.max_loops
+        loop_count = node.loop_count
+
+        _execute_node_send(target_node_id, asst_msg.id, output_node_id, loop_node_id, max_loops, loop_count, bg_db)
+    finally:
+        bg_db.close()
 
 
 def _deliver_auto_route(source_node_id: int, source_msg_id: int, target_node_id: int, db):
-    """Deliver an auto-routed message to the target node."""
+    """Deliver an auto-routed message to the target node. Returns routed message id or None."""
     src_msg = db.query(ChatMessage).filter(ChatMessage.id == source_msg_id).first()
     target_node = db.query(ChatNode).filter(ChatNode.id == target_node_id).first()
     if not src_msg or not target_node:
-        return
+        return None
 
     # Workspace boundary check
     src_node = db.query(ChatNode).filter(ChatNode.id == source_node_id).first()
     if not src_node or src_node.workspace_id != target_node.workspace_id:
-        return  # refuse cross-workspace delivery silently
+        return None  # refuse cross-workspace delivery silently
 
     # Prevent duplicate auto-route delivery
     exists = db.query(ChatMessage).filter(
@@ -413,7 +639,7 @@ def _deliver_auto_route(source_node_id: int, source_msg_id: int, target_node_id:
         ChatMessage.message_kind == "auto_route",
     ).first()
     if exists:
-        return
+        return exists.id
 
     last = db.query(ChatMessage).filter(
         ChatMessage.node_id == target_node_id,
@@ -434,3 +660,5 @@ def _deliver_auto_route(source_node_id: int, source_msg_id: int, target_node_id:
     )
     db.add(routed)
     db.commit()
+    db.refresh(routed)
+    return routed.id

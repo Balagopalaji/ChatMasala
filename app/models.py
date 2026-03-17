@@ -115,7 +115,10 @@ class ChatNode(Base):
     workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False)
     name = Column(String, nullable=False)
     agent_profile_id = Column(Integer, ForeignKey("agent_profiles.id"), nullable=True)
-    downstream_node_id = Column(Integer, ForeignKey("chat_nodes.id"), nullable=True)
+    output_node_id = Column(Integer, ForeignKey("chat_nodes.id"), nullable=True)
+    loop_node_id = Column(Integer, ForeignKey("chat_nodes.id"), nullable=True)
+    max_loops = Column(Integer, default=3, nullable=False)
+    loop_count = Column(Integer, default=0, nullable=False)
     order_index = Column(Integer, default=0, nullable=False)
     status = Column(String, nullable=False, default="idle")  # idle | running | needs_attention
     last_error = Column(Text, nullable=True)
@@ -125,7 +128,8 @@ class ChatNode(Base):
 
     workspace = relationship("Workspace", back_populates="nodes")
     agent_profile = relationship("AgentProfile", foreign_keys=[agent_profile_id])
-    downstream_node = relationship("ChatNode", remote_side="ChatNode.id", foreign_keys="[ChatNode.downstream_node_id]")
+    output_node = relationship("ChatNode", remote_side="ChatNode.id", foreign_keys="[ChatNode.output_node_id]")
+    loop_node = relationship("ChatNode", remote_side="ChatNode.id", foreign_keys="[ChatNode.loop_node_id]")
     messages = relationship("ChatMessage", back_populates="node", cascade="all, delete-orphan", order_by="ChatMessage.sequence_number", foreign_keys="[ChatMessage.node_id]")
 
 

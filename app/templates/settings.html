@@ -1,135 +1,244 @@
 {% extends "base.html" %}
 {% block title %}Settings — ChatMasala{% endblock %}
+
+{% block sidebar_runs %}
+{% for ws in all_workspaces %}
+<a href="/workspaces/{{ ws.id }}" class="run-item">
+  <span class="run-item-title">{{ ws.title | truncate(26, True) }}</span>
+</a>
+{% endfor %}
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
+  {% if back_workspace %}
+  <a href="/workspaces/{{ back_workspace.id }}" class="btn btn-secondary btn-sm" style="margin-right:12px">← Back to {{ back_workspace.title }}</a>
+  {% endif %}
   <h1>Settings</h1>
 </div>
 
-<!-- CLI Providers -->
-<section class="settings-section">
-  <h2 class="settings-section-title">CLI Providers</h2>
-  <p class="settings-section-desc">Connect the CLI tools that power your chat nodes.</p>
-  <div class="provider-list" id="provider-list">
-    <p class="empty-state" style="font-size:13px">Loading providers…</p>
-  </div>
-</section>
+<!-- Tab navigation -->
+<div class="settings-tabs">
+  <button class="tab-btn active" id="tab-btn-providers" onclick="switchTab('providers', this)">CLI Providers</button>
+  <button class="tab-btn" id="tab-btn-builtins" onclick="switchTab('builtins', this)">Built-in Agents</button>
+  <button class="tab-btn" id="tab-btn-custom" onclick="switchTab('custom', this)">Custom Agents</button>
+</div>
 
-<!-- Built-in Agents -->
-<section class="settings-section">
-  <h2 class="settings-section-title">Built-in Agents</h2>
-  <p class="settings-section-desc">Pre-configured agents based on connected CLI providers.</p>
-  {% if builtins %}
-  <div class="profile-list">
-    {% for profile in builtins %}
-    <div class="profile-card">
-      <div class="profile-card-header">
-        <h3>{{ profile.name }}</h3>
-        <span class="badge badge-provider">{{ profile.provider }}</span>
-        <span class="badge" style="background:#dcfce7;color:#166534">built-in</span>
-      </div>
-      <div class="profile-card-body">
-        <div class="profile-field">
-          <label>Command</label>
-          <code>{{ profile.command_template }}</code>
-        </div>
-      </div>
+<!-- Tab: CLI Providers -->
+<div class="tab-panel" id="tab-providers">
+  <p class="settings-section-desc" style="margin-bottom:16px">Connect the CLI tools that power your chat nodes.</p>
+
+  {% set provider_configs = [
+    ("claude", "Claude", "claude --dangerously-skip-permissions", ""),
+    ("codex", "Codex", "codex exec -", "Uses <code>codex exec -</code> for non-interactive execution."),
+    ("gemini", "Gemini CLI", "gemini", ""),
+  ] %}
+
+  {% for provider_key, provider_name, provider_cmd, provider_note in provider_configs %}
+  {% set status = provider_statuses.get(provider_key, "not_detected") %}
+  <div class="provider-card" id="provider-card-{{ provider_key }}">
+    <div class="provider-card-header">
+      <span class="provider-name">{{ provider_name }}</span>
+      <span class="provider-status-badge
+        {% if status == 'connected' %}status-connected
+        {% elif status == 'cli_only' %}status-cli-only
+        {% else %}status-not-detected{% endif %}"
+        id="provider-badge-{{ provider_key }}">
+        {% if status == 'connected' %}Connected ✓
+        {% elif status == 'cli_only' %}CLI detected — not configured
+        {% else %}Not detected{% endif %}
+      </span>
     </div>
-    {% endfor %}
+    {% if status == 'cli_only' %}
+    <div class="provider-config-note" style="color:#92400e;font-size:13px;margin:4px 0 8px">
+      Set <code>GEMINI_API_KEY</code> in your shell environment to use Gemini.
+    </div>
+    {% endif %}
+    {% if provider_note %}
+    <div class="provider-note" style="font-size:13px;color:#475569;margin-bottom:8px">{{ provider_note }}</div>
+    {% endif %}
+    <div class="provider-card-body">
+      <div class="provider-cmd-row">
+        <code class="provider-cmd">{{ provider_cmd }}</code>
+        <button type="button" class="btn btn-secondary btn-sm"
+          onclick="testProviderConnection('{{ provider_key }}', '{{ provider_cmd }}')">
+          Test Connection
+        </button>
+      </div>
+      <div class="provider-test-result" id="test-result-{{ provider_key }}" style="display:none;margin-top:8px;font-size:12px;font-family:monospace;padding:6px 8px;border-radius:4px;"></div>
+    </div>
   </div>
+  {% endfor %}
+</div>
+
+<!-- Tab: Built-in Agents -->
+<div class="tab-panel" id="tab-builtins" style="display:none">
+  <p class="settings-section-desc" style="margin-bottom:16px">Pre-configured agents based on connected CLI providers. These are read-only.</p>
+  {% if builtins %}
+  <table class="agents-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Key</th>
+        <th>Command</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for agent in builtins %}
+      <tr>
+        <td><strong>{{ agent.name }}</strong></td>
+        <td><code style="font-size:12px">{{ agent.builtin_key or "—" }}</code></td>
+        <td><code style="font-size:12px">{{ agent.command_template }}</code></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
   {% else %}
   <p class="empty-state">No built-in agents seeded yet.</p>
   {% endif %}
-</section>
+</div>
 
-<!-- Custom Agents -->
-<section class="settings-section">
-  <h2 class="settings-section-title">Custom Agents</h2>
-  <p class="settings-section-desc">Your own agent configurations with custom commands and instructions.</p>
-  <div style="margin-bottom:12px">
-    <a href="/settings/profiles/new" class="btn btn-primary btn-sm">+ New Custom Agent</a>
+<!-- Tab: Custom Agents -->
+<div class="tab-panel" id="tab-custom" style="display:none">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <p class="settings-section-desc" style="margin:0">Your own agent configurations with custom commands and instructions.</p>
+    <button type="button" class="btn btn-primary btn-sm" onclick="openModal()">+ New Custom Agent</button>
   </div>
   {% if custom_agents %}
-  <div class="profile-list">
-    {% for profile in custom_agents %}
-    <div class="profile-card">
-      <div class="profile-card-header">
-        <h3>{{ profile.name }}</h3>
-        <span class="badge badge-provider">{{ profile.provider }}</span>
-      </div>
-      <div class="profile-card-body">
-        <div class="profile-field">
-          <label>Command</label>
-          <code>{{ profile.command_template }}</code>
-        </div>
-        {% if profile.instruction_file %}
-        <div class="profile-field">
-          <label>Instruction File</label>
-          <code>{{ profile.instruction_file }}</code>
-        </div>
-        {% endif %}
-      </div>
-      <div class="profile-card-actions">
-        <a href="/settings/profiles/{{ profile.id }}/edit" class="btn btn-secondary btn-sm">Edit</a>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
+  <table class="agents-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Command</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for agent in custom_agents %}
+      <tr>
+        <td><strong>{{ agent.name }}</strong></td>
+        <td><code style="font-size:12px">{{ agent.command_template }}</code></td>
+        <td>
+          <form method="post" action="/settings/agents/{{ agent.id }}/delete"
+            onsubmit="return confirm('Delete {{ agent.name }}?')" style="display:inline">
+            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
   {% else %}
-  <p class="empty-state">No custom agents yet. <a href="/settings/profiles/new">Create one</a>.</p>
+  <p class="empty-state">No custom agents yet. Click "+ New Custom Agent" to create one.</p>
   {% endif %}
-</section>
+</div>
+
+<!-- New Custom Agent Modal -->
+<div id="new-agent-modal" class="modal" style="display:none">
+  <div class="modal-backdrop" onclick="closeModal()"></div>
+  <div class="modal-content">
+    <h2>New Custom Agent</h2>
+    <form method="post" action="/settings/agents/new" id="new-agent-form" onsubmit="return validateAgentForm()">
+      <div class="form-group">
+        <label>Agent Name <span style="color:#dc2626">*</span></label>
+        <input type="text" name="name" class="form-control" required placeholder="e.g. My Claude Agent">
+      </div>
+
+      <div class="form-group">
+        <label>Description (optional)</label>
+        <textarea name="description" class="form-control" rows="2" placeholder="What does this agent do?"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label>Provider preset</label>
+        <select name="provider_preset" class="form-control" onchange="fillPreset(this)" id="preset-select">
+          <option value="">— choose a preset —</option>
+          <option value="claude">Claude</option>
+          <option value="codex">Codex</option>
+          <option value="gemini">Gemini</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+
+      <details id="advanced-details">
+        <summary style="cursor:pointer;font-size:13px;color:#475569;margin-bottom:8px">Advanced</summary>
+        <div class="form-group" style="margin-top:8px">
+          <label>Command template</label>
+          <input type="text" name="command_template" id="command-input" class="form-control"
+            placeholder="e.g. claude --dangerously-skip-permissions" style="font-family:monospace">
+        </div>
+        <div class="form-group">
+          <label>Instruction file path (optional)</label>
+          <input type="text" name="instruction_file" class="form-control"
+            placeholder="/path/to/instructions.md" style="font-family:monospace">
+        </div>
+      </details>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-// Load CLI providers status dynamically
-async function loadProviders() {
-  const list = document.getElementById('provider-list');
-  try {
-    const res = await fetch('/api/cli-providers');
-    const providers = await res.json();
-    list.innerHTML = '';
-    for (const p of providers) {
-      const card = document.createElement('div');
-      card.className = 'provider-card';
-      card.innerHTML = `
-        <div class="provider-card-header">
-          <span class="provider-name">${p.name}</span>
-          <span class="provider-status ${p.detected ? 'detected' : 'not-detected'}">
-            ${p.detected ? '● Detected' : '○ Not detected'}
-          </span>
-        </div>
-        <div class="provider-card-body">
-          <div class="provider-cmd-row">
-            <input type="text" class="provider-cmd-input form-control" id="cmd-${p.key}" value="${p.command}" style="font-family:monospace;font-size:12px">
-            <button type="button" class="btn btn-secondary btn-sm" onclick="testProvider('${p.key}')">Test Connection</button>
-          </div>
-          <div class="provider-test-result" id="result-${p.key}" style="display:none;margin-top:8px;font-size:12px;font-family:monospace;padding:6px 8px;border-radius:4px;"></div>
-        </div>
-      `;
-      list.appendChild(card);
-    }
-  } catch (e) {
-    list.innerHTML = '<p class="empty-state" style="font-size:13px">Failed to load providers.</p>';
-  }
+// ---------------------------------------------------------------------------
+// Tab switching
+// ---------------------------------------------------------------------------
+function switchTab(tabName, btn) {
+  // Hide all panels
+  document.querySelectorAll('.tab-panel').forEach(function(p) { p.style.display = 'none'; });
+  // Deactivate all buttons
+  document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+  // Show selected
+  document.getElementById('tab-' + tabName).style.display = 'block';
+  btn.classList.add('active');
 }
 
-async function testProvider(key) {
-  const input = document.getElementById('cmd-' + key);
-  const resultEl = document.getElementById('result-' + key);
-  const cmd = input.value.trim();
+// Handle ?tab= query param on load
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var tab = params.get('tab');
+  if (tab) {
+    var btn = document.getElementById('tab-btn-' + tab);
+    if (btn) switchTab(tab, btn);
+  }
+})();
+
+// ---------------------------------------------------------------------------
+// Provider Test Connection
+// ---------------------------------------------------------------------------
+async function testProviderConnection(providerKey, command) {
+  var resultEl = document.getElementById('test-result-' + providerKey);
+  var badgeEl = document.getElementById('provider-badge-' + providerKey);
   resultEl.style.display = 'block';
   resultEl.style.background = '#f1f5f9';
   resultEl.style.color = '#475569';
   resultEl.textContent = 'Testing…';
+
   try {
-    const formData = new FormData();
-    formData.append('command', cmd);
-    const res = await fetch('/api/cli-providers/test', { method: 'POST', body: formData });
-    const data = await res.json();
-    resultEl.style.background = data.success ? '#dcfce7' : '#fee2e2';
-    resultEl.style.color = data.success ? '#166534' : '#991b1b';
-    resultEl.textContent = data.output;
+    var formData = new FormData();
+    formData.append('provider', providerKey);
+    formData.append('command', command);
+    var res = await fetch('/settings/test-connection', { method: 'POST', body: formData });
+    var data = await res.json();
+
+    if (data.success) {
+      resultEl.style.background = '#dcfce7';
+      resultEl.style.color = '#166534';
+      resultEl.textContent = data.output || '(no output)';
+      badgeEl.textContent = 'Connected ✓';
+      badgeEl.className = 'provider-status-badge status-connected';
+    } else {
+      resultEl.style.background = '#fee2e2';
+      resultEl.style.color = '#991b1b';
+      resultEl.textContent = data.error || data.output || '(no output)';
+      badgeEl.textContent = 'Error — see output below';
+      badgeEl.className = 'provider-status-badge status-error';
+    }
   } catch (e) {
     resultEl.style.background = '#fee2e2';
     resultEl.style.color = '#991b1b';
@@ -137,6 +246,51 @@ async function testProvider(key) {
   }
 }
 
-loadProviders();
+// ---------------------------------------------------------------------------
+// New Custom Agent Modal
+// ---------------------------------------------------------------------------
+function openModal() {
+  document.getElementById('new-agent-modal').style.display = 'flex';
+}
+
+function closeModal() {
+  document.getElementById('new-agent-modal').style.display = 'none';
+  document.getElementById('new-agent-form').reset();
+}
+
+function fillPreset(select) {
+  var cmdInput = document.getElementById('command-input');
+  var presets = {
+    'claude': 'claude --dangerously-skip-permissions',
+    'codex':  'codex exec -',
+    'gemini': 'gemini',
+    'custom': '',
+  };
+  var val = select.value;
+  if (val in presets) {
+    cmdInput.value = presets[val];
+    // Expand advanced details when a command is auto-filled
+    if (val !== 'custom') {
+      document.getElementById('advanced-details').open = true;
+    }
+  }
+}
+
+function validateAgentForm() {
+  var preset = document.getElementById('preset-select').value;
+  var cmd = document.getElementById('command-input').value.trim();
+  if (!preset && !cmd) {
+    alert('Please choose a provider preset or enter a command template.');
+    return false;
+  }
+  return true;
+}
 </script>
+
+<style>
+/* Settings-page-local overrides — all tokens pull from main.css variables */
+.form-group { margin-bottom: 14px; }
+.form-group label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 4px; color: var(--text-primary); }
+.form-group .form-control { width: 100%; box-sizing: border-box; }
+</style>
 {% endblock %}

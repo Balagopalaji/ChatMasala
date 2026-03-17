@@ -856,10 +856,10 @@ The mockup uses a white/near-white background with dark text and clean spacing. 
 
 ## Pass 2 — Proposed Phases
 
-- [ ] Phase 9 — Core Workspace Usability
-- [ ] Phase 10 — Loop / Routing Model
-- [ ] Phase 11 — Provider, Agent, and Settings Cleanup
-- [ ] Phase 12 — Visual Polish and Light Theme
+- [x] Phase 9 — Core Workspace Usability
+- [x] Phase 10 — Loop / Routing Model
+- [x] Phase 11 — Provider, Agent, and Settings Cleanup
+- [x] Phase 12 — Visual Polish and Light Theme
 
 ---
 
@@ -879,47 +879,47 @@ The mockup uses a white/near-white background with dark text and clean spacing. 
 
 #### Workflow strip
 
-- [ ] Workflow strip never wraps to a second line. It stays on one horizontal row and scrolls horizontally when nodes overflow. Apply `flex-wrap: nowrap; overflow-x: auto` on the strip container.
-- [ ] Workflow node chips show a numbered circle (①②③④ etc.) as the primary visual identifier, not just the node name.
+- [x] Workflow strip never wraps to a second line. It stays on one horizontal row and scrolls horizontally when nodes overflow. Apply `flex-wrap: nowrap; overflow-x: auto` on the strip container.
+- [x] Workflow node chips show a numbered circle (①②③④ etc.) as the primary visual identifier, not just the node name.
 
 #### Chat panels
 
-- [ ] Chat panels have a fixed `min-width` of approximately 380px and `flex-shrink: 0`. They do not compress when there are many nodes.
-- [ ] The panel container scrolls horizontally. Only 2–3 panels are visible at once on a standard screen; the rest are reachable by scrolling.
-- [ ] Panel layout order top to bottom: node name → Input from (if set) → Output to dropdown → Loop to dropdown (if loop is configured) → message transcript → composer input → Agent picker → action buttons (Reset, Import, Delete).
+- [x] Chat panels have a fixed `min-width` of approximately 380px and `flex-shrink: 0`. They do not compress when there are many nodes.
+- [x] The panel container scrolls horizontally. Only 2–3 panels are visible at once on a standard screen; the rest are reachable by scrolling.
+- [x] Panel layout order top to bottom: node name → Input from (if set) → Output to dropdown → Loop to dropdown (if loop is configured) → message transcript → composer input → Agent picker → action buttons (Reset, Import, Delete).
 
 #### Composer / input
 
-- [ ] The message textarea auto-grows as the user types. It starts at approximately 2 lines tall and expands up to a reasonable max (e.g. 8 lines) before scrolling internally.
-- [ ] Cmd+Enter / Ctrl+Enter submits the message. Enter alone inserts a newline.
+- [x] The message textarea auto-grows as the user types. It starts at approximately 2 lines tall and expands up to a reasonable max (e.g. 8 lines) before scrolling internally.
+- [x] Cmd+Enter / Ctrl+Enter submits the message. Enter alone inserts a newline.
 
 #### Running state
 
-- [ ] When a node's status is `running`, the panel shows a clearly visible animated indicator in the transcript area (e.g. a pulsing "Thinking…" row or a spinner). The user must be able to tell immediately that the node is active without waiting for polling to return.
-- [ ] The workflow node chip for a running node shows a distinct visual state (e.g. pulsing border or animated dot).
+- [x] When a node's status is `running`, the panel shows a clearly visible animated indicator in the transcript area (e.g. a pulsing "Thinking…" row or a spinner). The user must be able to tell immediately that the node is active without waiting for polling to return.
+- [x] The workflow node chip for a running node shows a distinct visual state (e.g. pulsing border or animated dot).
 
 #### Status labels
 
-- [ ] Status values are displayed as human-readable labels everywhere in the UI:
+- [x] Status values are displayed as human-readable labels everywhere in the UI:
   - `idle` → "Ready"
   - `running` → "Running…"
   - `needs_attention` → "Needs attention"
 
 #### New workspace flow
 
-- [ ] Clicking "+ New Workspace" in the sidebar does **not** show a form page. It immediately creates a new workspace (title: "New Workspace", no path, one default node with the default agent) and redirects to the workspace detail page.
-- [ ] The workspace title is editable inline on the workspace detail page (click to edit, Enter to save).
-- [ ] The workspace path is editable inline or via a Browse button on the workspace detail page. It is not required.
+- [x] Clicking "+ New Workspace" in the sidebar does **not** show a form page. It immediately creates a new workspace (title: "New Workspace", no path, one default node with the default agent) and redirects to the workspace detail page.
+- [x] The workspace title is editable inline on the workspace detail page (click to edit, Enter to save).
+- [x] The workspace path is editable inline or via a Browse button on the workspace detail page. It is not required.
 
 #### Default node behavior
 
-- [ ] When a new node is added to a workspace, it automatically gets the first available builtin agent (Claude). It should never be created without an agent if any builtins exist.
-- [ ] When a new node is added and the workspace already has at least one other node, the previous node's `output_node_id` is automatically set to point to the new node. This can be changed but should be the default.
+- [x] When a new node is added to a workspace, it automatically gets the first available builtin agent (Claude). It should never be created without an agent if any builtins exist.
+- [x] When a new node is added and the workspace already has at least one other node, the previous node's `output_node_id` is automatically set to point to the new node. This can be changed but should be the default.
 
 #### Sidebar persistence
 
-- [ ] The workspace sidebar (list of recent workspaces) is visible on all pages: workspace list, workspace detail, workspace new (if kept), and settings.
-- [ ] The settings page has a visible "Back to Workspace" button or link in the header when navigated to from a workspace.
+- [x] The workspace sidebar (list of recent workspaces) is visible on all pages: workspace list, workspace detail, workspace new (if kept), and settings.
+- [x] The settings page has a visible "Back to Workspace" button or link in the header when navigated to from a workspace.
 
 ### Risks / gotchas
 
@@ -964,34 +964,34 @@ A clean DB reset is acceptable to apply this schema change. Do not add a migrati
 
 #### Data model
 
-- [ ] `ChatNode` has `output_node_id`, `loop_node_id`, `max_loops`, and `loop_count` fields.
-- [ ] `downstream_node_id` is removed.
-- [ ] Workspace isolation checks are updated to use the new field names.
-- [ ] Inbound route cleanup on node deletion covers all new route FKs.
-- [ ] Tests cover the new schema.
+- [x] `ChatNode` has `output_node_id`, `loop_node_id`, `max_loops`, and `loop_count` fields.
+- [x] `downstream_node_id` is removed.
+- [x] Workspace isolation checks are updated to use the new field names.
+- [x] Inbound route cleanup on node deletion covers all new route FKs.
+- [x] Tests cover the new schema.
 
 #### GO / NO_GO detection
 
-- [ ] After a node with `loop_node_id` set completes a send, the final non-empty trimmed line of the assistant response is checked.
-- [ ] Exact match `GO` (case-insensitive) → route output to `output_node_id` as a delivered message (no auto-run of target).
-- [ ] Exact match `NO_GO` (case-insensitive) → increment `loop_count`; if `loop_count >= max_loops`, route to `output_node_id` and set node to `needs_attention` with an error note "Max loops reached"; otherwise deliver to `loop_node_id` and auto-run the loop target.
-- [ ] Neither sentinel present and `loop_node_id` is set → do not auto-route; set node to `needs_attention` with an error note like "Looped node did not end with GO or NO_GO".
-- [ ] Node with no `loop_node_id` → no sentinel detection; route output to `output_node_id` unconditionally (message delivery, no auto-run).
+- [x] After a node with `loop_node_id` set completes a send, the final non-empty trimmed line of the assistant response is checked.
+- [x] Exact match `GO` (case-insensitive) → route output to `output_node_id` as a delivered message (no auto-run of target).
+- [x] Exact match `NO_GO` (case-insensitive) → increment `loop_count`; if `loop_count >= max_loops`, route to `output_node_id` and set node to `needs_attention` with an error note "Max loops reached"; otherwise deliver to `loop_node_id` and auto-run the loop target.
+- [x] Neither sentinel present and `loop_node_id` is set → do not auto-route; set node to `needs_attention` with an error note like "Looped node did not end with GO or NO_GO".
+- [x] Node with no `loop_node_id` → no sentinel detection; route output to `output_node_id` unconditionally (message delivery, no auto-run).
 
 #### Loop auto-execution
 
-- [ ] When the loop target receives the routed message, the loop target node is automatically run (as if the user pressed Send with the routed content as the new user message). This is the only permitted auto-execution in this pass.
-- [ ] Loop auto-execution respects the same guards as manual sends: node must not already be `running`, must have an agent assigned.
-- [ ] If the loop target has no agent, delivery still happens but auto-run does not; node status is set to `needs_attention`.
+- [x] When the loop target receives the routed message, the loop target node is automatically run (as if the user pressed Send with the routed content as the new user message). This is the only permitted auto-execution in this pass.
+- [x] Loop auto-execution respects the same guards as manual sends: node must not already be `running`, must have an agent assigned.
+- [x] If the loop target has no agent, delivery still happens but auto-run does not; node status is set to `needs_attention`.
 
 #### UI
 
-- [ ] Each chat panel shows three separate relationship controls:
+- [x] Each chat panel shows three separate relationship controls:
   - **Input from:** read-only label or chips showing which node(s) currently feed this one (or "—" if none)
   - **Output to:** dropdown to select `output_node_id` (options: No output, [other nodes])
   - **Loop to:** dropdown to select `loop_node_id` (options: No loop, [other nodes]) + a `Max loops` number input (only shown when a loop target is selected)
-- [ ] The workflow strip shows a visual loop indicator around nodes that form a loop (orange dashed border enclosing all nodes between `loop_node_id` source and target, with a "Loop max: N" badge).
-- [ ] When `loop_count > 0` on a running loop, the badge updates to show "Loop N/max".
+- [x] The workflow strip shows a visual loop indicator around nodes that form a loop (orange dashed border enclosing all nodes between `loop_node_id` source and target, with a "Loop max: N" badge).
+- [x] When `loop_count > 0` on a running loop, the badge updates to show "Loop N/max".
 
 ### Risks / gotchas
 
@@ -1031,43 +1031,43 @@ A clean DB reset is acceptable to apply this schema change. Do not add a migrati
 
 #### Seeded builtin agents
 
-- [ ] Seeded builtins are updated to follow one consistent rule:
+- [x] Seeded builtins are updated to follow one consistent rule:
   - **Required defaults:**
     - **Claude** (default): command `claude --dangerously-skip-permissions` — no `--model` flag. Name: "Claude".
     - **Codex**: command `codex exec -`. Name: "Codex".
     - **Gemini**: command `gemini`. Name: "Gemini CLI".
   - **Optional pinned variants:** only include explicit Sonnet / Opus / Haiku presets if you intentionally want them exposed as separate choices in the UI. If included, they are additional presets, not replacements for the default unpinned Claude agent.
-- [ ] The default agent for new nodes is "Claude" (the no-model-pinned builtin).
+- [x] The default agent for new nodes is "Claude" (the no-model-pinned builtin).
 
 #### Provider status
 
-- [ ] The CLI Providers section in settings detects:
+- [x] The CLI Providers section in settings detects:
   - Binary presence on PATH (`shutil.which`)
   - For Gemini CLI specifically: whether `GEMINI_API_KEY` is set in `os.environ`
-- [ ] Provider status labels:
+- [x] Provider status labels:
   - Binary on PATH + (Gemini: env var set or non-Gemini): show "Connected ✓" in green
   - Binary on PATH + Gemini env var missing: show "CLI detected — not configured. Set GEMINI_API_KEY in your shell environment." in amber
   - Binary not on PATH: show "Not detected" in grey
-- [ ] After a successful "Test Connection" (exit code 0), the provider card updates to show "Connected ✓".
-- [ ] After a failed "Test Connection" (non-zero exit or error), the card shows "Error — see output below" in red.
+- [x] After a successful "Test Connection" (exit code 0), the provider card updates to show "Connected ✓".
+- [x] After a failed "Test Connection" (non-zero exit or error), the card shows "Error — see output below" in red.
 
 #### Settings navigation
 
-- [ ] The settings page always shows the workspace sidebar (list of recent workspaces).
-- [ ] If the user navigated to settings from a workspace, a "← Back to [workspace name]" link or button is shown in the settings header.
-- [ ] The settings page layout uses a tab structure: `CLI Providers` | `Built-in Agents` | `Custom Agents`.
+- [x] The settings page always shows the workspace sidebar (list of recent workspaces).
+- [x] If the user navigated to settings from a workspace, a "← Back to [workspace name]" link or button is shown in the settings header.
+- [x] The settings page layout uses a tab structure: `CLI Providers` | `Built-in Agents` | `Custom Agents`.
 
 #### Custom agent creation
 
-- [ ] The "New Custom Agent" flow uses a modal or inline form (not a separate page navigation), consistent with the mockup in `tmp/Multi-Chat Workflow Builder/screeenshots/`.
-- [ ] The modal asks for: Agent Name (required) + Description/purpose (optional). Advanced fields (command template, instruction file) are collapsed behind an "Advanced" disclosure by default.
-- [ ] The modal also asks for a provider preset (Claude / Codex / Gemini / Custom). Choosing a provider preset auto-fills the command template in Advanced.
-- [ ] If no provider preset is chosen and no advanced command is supplied, save is blocked with a clear validation error.
+- [x] The "New Custom Agent" flow uses a modal or inline form (not a separate page navigation), consistent with the mockup in `tmp/Multi-Chat Workflow Builder/screeenshots/`.
+- [x] The modal asks for: Agent Name (required) + Description/purpose (optional). Advanced fields (command template, instruction file) are collapsed behind an "Advanced" disclosure by default.
+- [x] The modal also asks for a provider preset (Claude / Codex / Gemini / Custom). Choosing a provider preset auto-fills the command template in Advanced.
+- [x] If no provider preset is chosen and no advanced command is supplied, save is blocked with a clear validation error.
 
 #### Codex non-interactive mode
 
-- [ ] The seeded Codex command is `codex exec -` (not `codex`). This uses Codex's built-in non-interactive mode where the prompt is read from stdin.
-- [ ] A note is visible in the Codex provider card: "Uses `codex exec -` for non-interactive execution."
+- [x] The seeded Codex command is `codex exec -` (not `codex`). This uses Codex's built-in non-interactive mode where the prompt is read from stdin.
+- [x] A note is visible in the Codex provider card: "Uses `codex exec -` for non-interactive execution."
 
 ### Risks / gotchas
 
@@ -1095,37 +1095,37 @@ A clean DB reset is acceptable to apply this schema change. Do not add a migrati
 
 #### Light theme
 
-- [ ] The app uses a light background (white or very light grey, e.g. `#f9fafb`) with dark text (`#111827` or similar) as the default.
-- [ ] The current dark theme CSS variables are replaced or overridden with light theme values.
-- [ ] The sidebar uses a slightly darker panel (e.g. `#f3f4f6`) to distinguish it from the main content area.
-- [ ] Chat panels use a white card background with a subtle border and shadow.
-- [ ] User messages use the accent colour (indigo/violet, matching the mockup) as bubble background.
-- [ ] Assistant messages use a light grey bubble.
+- [x] The app uses a light background (white or very light grey, e.g. `#f9fafb`) with dark text (`#111827` or similar) as the default.
+- [x] The current dark theme CSS variables are replaced or overridden with light theme values.
+- [x] The sidebar uses a slightly darker panel (e.g. `#f3f4f6`) to distinguish it from the main content area.
+- [x] Chat panels use a white card background with a subtle border and shadow.
+- [x] User messages use the accent colour (indigo/violet, matching the mockup) as bubble background.
+- [x] Assistant messages use a light grey bubble.
 
 #### Workflow strip
 
-- [ ] Node chips in the workflow strip use the clean card style from the mockup: white background, 1px border, rounded corners, bold numbered circle, node name, agent name, status badge.
-- [ ] Route arrows (`→`) between chips are simple, not heavy.
-- [ ] Loop group is enclosed in an orange dashed border with a "Loop Max: N" orange pill badge at the top of the group.
+- [x] Node chips in the workflow strip use the clean card style from the mockup: white background, 1px border, rounded corners, bold numbered circle, node name, agent name, status badge.
+- [x] Route arrows (`→`) between chips are simple, not heavy.
+- [x] Loop group is enclosed in an orange dashed border with a "Loop Max: N" orange pill badge at the top of the group.
 
 #### Chat panels
 
-- [ ] Panel headers are clean: node name (large, editable on click) + status badge aligned right.
-- [ ] The "Input from", "Output to", and "Loop to" controls are clearly labelled and visually grouped below the header.
-- [ ] The transcript area is well-padded and readable.
-- [ ] The composer area at the bottom is clearly delineated: input grows with text, send button is prominent, agent picker is below or alongside the input.
+- [x] Panel headers are clean: node name (large, editable on click) + status badge aligned right.
+- [x] The "Input from", "Output to", and "Loop to" controls are clearly labelled and visually grouped below the header.
+- [x] The transcript area is well-padded and readable.
+- [x] The composer area at the bottom is clearly delineated: input grows with text, send button is prominent, agent picker is below or alongside the input.
 
 #### Settings
 
-- [ ] Settings page feels minimal and information-dense in a good way. Tabs are clean pill-style toggles as in the mockup.
-- [ ] CLI provider cards are clean rows: provider name, status badge (Connected ✓ / Not detected), command input, Test Connection button.
-- [ ] Agent list items are clean rows: agent name, ID/key, no raw internals visible at first glance.
+- [x] Settings page feels minimal and information-dense in a good way. Tabs are clean pill-style toggles as in the mockup.
+- [x] CLI provider cards are clean rows: provider name, status badge (Connected ✓ / Not detected), command input, Test Connection button.
+- [x] Agent list items are clean rows: agent name, ID/key, no raw internals visible at first glance.
 
 #### Typography and spacing
 
-- [ ] Use Inter for UI chrome and JetBrains Mono for code/command/path values (already linked in base.html — verify it is being applied).
-- [ ] Consistent spacing scale throughout: 4px base unit, sections at 16–24px gap.
-- [ ] No hard-coded pixel colours — use CSS custom properties throughout so future theme changes are a single-variable edit.
+- [x] Use Inter for UI chrome and JetBrains Mono for code/command/path values (already linked in base.html — verify it is being applied).
+- [x] Consistent spacing scale throughout: 4px base unit, sections at 16–24px gap.
+- [x] No hard-coded pixel colours — use CSS custom properties throughout so future theme changes are a single-variable edit.
 
 ### Risks / gotchas
 

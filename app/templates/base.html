@@ -14,14 +14,16 @@
     <aside class="sidebar">
       <div class="sidebar-header">
         <a href="/" class="logo">🌶 ChatMasala</a>
-        <a href="/settings" class="settings-link" title="Settings">⚙</a>
+        <a href="/settings{% if workspace is defined %}?from={{ workspace.id }}{% endif %}" class="settings-link" title="Settings">⚙</a>
       </div>
       <div class="sidebar-section-label">Workspaces</div>
       <nav class="workspace-list">
         {% block sidebar_runs %}{% endblock %}
       </nav>
       <div class="sidebar-footer">
-        <a href="/workspaces/new" class="new-run-btn">+ New Workspace</a>
+        <form method="post" action="/workspaces/new" style="display:inline">
+          <button type="submit" class="new-run-btn new-workspace-btn">+ New Workspace</button>
+        </form>
       </div>
     </aside>
     <main class="main-content">
