@@ -1,4 +1,5 @@
 """Workspace routes — list, create, detail, node management."""
+import os
 import threading
 from pathlib import Path
 
@@ -14,6 +15,19 @@ from app.models import AgentProfile, ChatNode, ChatMessage, Workspace
 router = APIRouter()
 BASE_DIR = Path(__file__).parent.parent
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
+
+
+def _get_workspace_sandbox(ws_id: int) -> str:
+    """Return the sandbox path for a workspace, creating it if needed.
+
+    Sandbox lives at ~/.chatmasala/workspaces/{ws_id}/
+    Agents run here when no explicit workspace_path is set.
+    This keeps agent file activity isolated from both the ChatMasala
+    source tree and the user's real projects.
+    """
+    sandbox = os.path.join(os.path.expanduser("~"), ".chatmasala", "workspaces", str(ws_id))
+    os.makedirs(sandbox, exist_ok=True)
+    return sandbox
 
 
 @router.get("/workspaces", response_class=HTMLResponse)
@@ -34,6 +48,7 @@ def create_workspace_immediate(
     db.add(ws)
     db.commit()
     db.refresh(ws)
+    _get_workspace_sandbox(ws.id)  # create sandbox eagerly
     # Auto-create one default node
     node = ChatNode(workspace_id=ws.id, name="Node 1", order_index=0)
     # Assign the claude_default builtin agent, falling back to any builtin
@@ -105,12 +120,14 @@ async def workspace_detail(ws_id: int, request: Request, db: Session = Depends(g
                     "color_idx": color_idx,
                 })
 
+    sandbox_path = _get_workspace_sandbox(ws.id)
     return templates.TemplateResponse(request, "workspace_detail.html", {
         "workspace": ws,
         "profiles": profiles,
         "all_workspaces": all_workspaces,
         "node_names": node_names,
         "loop_groups": loop_groups,
+        "sandbox_path": sandbox_path,
     })
 
 
@@ -355,6 +372,7 @@ def reset_node(
 def import_last_message(
     ws_id: int,
     node_id: int,
+    background_tasks: BackgroundTasks,
     source_node_id: str = Form(""),
     db: Session = Depends(get_db),
 ):
@@ -411,6 +429,9 @@ def import_last_message(
     )
     db.add(imported)
     db.commit()
+    # Auto-run the node with the just-imported message (skip if already running)
+    if node.status != "running" and node.agent_profile_id:
+        background_tasks.add_task(_auto_run_node, node_id, None)
     return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
 
 
@@ -463,7 +484,8 @@ def _execute_node_send(node_id: int, asst_msg_id: int, output_node_id, loop_node
     prompt_text = "\n\n".join(prompt_parts)
     asst_msg.prompt_text = prompt_text
 
-    workspace_path = node.workspace.workspace_path if node.workspace else None
+    raw_path = node.workspace.workspace_path if node.workspace else None
+    workspace_path = raw_path if raw_path else _get_workspace_sandbox(node.workspace_id)
 
     result = run_agent(
         command=profile.command_template,
@@ -498,12 +520,12 @@ def _execute_node_send(node_id: int, asst_msg_id: int, output_node_id, loop_node
     asst_msg.completed_at = datetime.now(timezone.utc)
 
     if not loop_node_id:
-        # No loop configured — route unconditionally to output_node_id (message delivery only)
+        # No loop configured — route unconditionally to output_node_id and auto-run target
         node.status = "idle"
         node.last_error = None
         db.commit()
         if output_node_id:
-            _deliver_auto_route(node_id, asst_msg_id, output_node_id, db)
+            _deliver_auto_route(node_id, asst_msg_id, output_node_id, db, auto_run=True)
         return
 
     # Loop mode — check sentinel in final non-empty trimmed line
@@ -511,36 +533,37 @@ def _execute_node_send(node_id: int, asst_msg_id: int, output_node_id, loop_node
     final_line = lines[-1].lower() if lines else ""
 
     if final_line == "go":
-        # GO: route to output_node, stay idle
+        # GO: route to output_node and auto-run target, stay idle
         node.status = "idle"
         node.last_error = None
         db.commit()
         if output_node_id:
-            _deliver_auto_route(node_id, asst_msg_id, output_node_id, db)
+            _deliver_auto_route(node_id, asst_msg_id, output_node_id, db, auto_run=True)
         return
 
     if final_line == "no_go":
         # Read fresh loop_count from DB to avoid stale data
         fresh_node = db.query(ChatNode).filter(ChatNode.id == node_id).first()
-        new_loop_count = (fresh_node.loop_count if fresh_node else loop_count) + 1
+        current_loop_count = fresh_node.loop_count if fresh_node else loop_count
         if fresh_node:
-            fresh_node.loop_count = new_loop_count
             node = fresh_node
 
-        if new_loop_count >= max_loops:
-            # Circuit breaker — stop looping
+        if current_loop_count >= max_loops:
+            # Circuit breaker — stop looping (don't increment loop_count)
             if output_node_id:
-                error_msg = "Max loops reached"
+                node.status = "idle"
+                node.last_error = None
+                db.commit()
+                _deliver_auto_route(node_id, asst_msg_id, output_node_id, db, auto_run=True)
             else:
-                error_msg = "Max loops reached — no output node configured"
-            node.status = "needs_attention"
-            node.last_error = error_msg
-            db.commit()
-            if output_node_id:
-                _deliver_auto_route(node_id, asst_msg_id, output_node_id, db)
+                node.status = "needs_attention"
+                node.last_error = "Max loops reached — no output node configured"
+                db.commit()
             return
 
-        # Loop back — deliver to loop_node_id, then auto-run it
+        # Loop back — increment loop_count, deliver to loop_node_id, then auto-run it
+        node.loop_count = current_loop_count + 1
+
         # Check if loop target is already running before committing
         loop_target = db.query(ChatNode).filter(ChatNode.id == loop_node_id).first()
         if loop_target and loop_target.status == "running":
@@ -567,17 +590,57 @@ def _execute_node_send(node_id: int, asst_msg_id: int, output_node_id, loop_node
         t.start()
         return
 
-    # Neither GO nor NO_GO sentinel
-    node.status = "needs_attention"
-    node.last_error = "Looped node did not end with GO or NO_GO"
+    # No sentinel — treat as NO_GO (loop back or route to output if max reached)
+    fresh_node = db.query(ChatNode).filter(ChatNode.id == node_id).first()
+    current_loop_count = fresh_node.loop_count if fresh_node else loop_count
+    if fresh_node:
+        node = fresh_node
+
+    if current_loop_count >= max_loops:
+        # Circuit breaker — stop looping (don't increment loop_count)
+        if output_node_id:
+            node.status = "idle"
+            node.last_error = None
+            db.commit()
+            _deliver_auto_route(node_id, asst_msg_id, output_node_id, db, auto_run=True)
+        else:
+            node.status = "needs_attention"
+            node.last_error = "Max loops reached — no output node configured"
+            db.commit()
+        return
+
+    # Loop back — increment loop_count, deliver to loop_node_id, then auto-run it
+    node.loop_count = current_loop_count + 1
+
+    loop_target = db.query(ChatNode).filter(ChatNode.id == loop_node_id).first()
+    if loop_target and loop_target.status == "running":
+        node.status = "needs_attention"
+        node.last_error = "Loop target is already running — manual retry required once it finishes."
+        db.commit()
+        _deliver_auto_route(node_id, asst_msg_id, loop_node_id, db)
+        return
+
+    # Normal loop-back
+    node.status = "idle"
+    node.last_error = None
     db.commit()
+    _deliver_auto_route(node_id, asst_msg_id, loop_node_id, db)
+
+    from app.db import SessionLocal
+    t = threading.Thread(
+        target=_auto_run_node,
+        args=(loop_node_id, SessionLocal),
+        daemon=True,
+    )
+    t.start()
 
 
-def _auto_run_node(target_node_id: int, session_factory):
+def _auto_run_node(target_node_id: int, session_factory=None):
     """Open a new DB session and auto-run the target node with its existing conversation history."""
     from datetime import datetime, timezone
+    from app.db import SessionLocal as _SessionLocal
 
-    bg_db = session_factory()
+    bg_db = (session_factory or _SessionLocal)()
     try:
         node = bg_db.query(ChatNode).filter(ChatNode.id == target_node_id).first()
         if not node:
@@ -620,8 +683,12 @@ def _auto_run_node(target_node_id: int, session_factory):
         bg_db.close()
 
 
-def _deliver_auto_route(source_node_id: int, source_msg_id: int, target_node_id: int, db):
-    """Deliver an auto-routed message to the target node. Returns routed message id or None."""
+def _deliver_auto_route(source_node_id: int, source_msg_id: int, target_node_id: int, db, auto_run: bool = False):
+    """Deliver an auto-routed message to the target node. Returns routed message id or None.
+
+    When auto_run=True, spawns _auto_run_node on the target after delivery (unless already
+    running or missing an agent — in those cases the source node is flagged needs_attention).
+    """
     src_msg = db.query(ChatMessage).filter(ChatMessage.id == source_msg_id).first()
     target_node = db.query(ChatNode).filter(ChatNode.id == target_node_id).first()
     if not src_msg or not target_node:
@@ -639,26 +706,55 @@ def _deliver_auto_route(source_node_id: int, source_msg_id: int, target_node_id:
         ChatMessage.message_kind == "auto_route",
     ).first()
     if exists:
-        return exists.id
+        routed_id = exists.id
+    else:
+        last = db.query(ChatMessage).filter(
+            ChatMessage.node_id == target_node_id,
+            ChatMessage.conversation_version == target_node.conversation_version,
+        ).order_by(ChatMessage.sequence_number.desc()).first()
+        next_seq = (last.sequence_number + 1) if last else 1
 
-    last = db.query(ChatMessage).filter(
-        ChatMessage.node_id == target_node_id,
-        ChatMessage.conversation_version == target_node.conversation_version,
-    ).order_by(ChatMessage.sequence_number.desc()).first()
-    next_seq = (last.sequence_number + 1) if last else 1
+        routed = ChatMessage(
+            node_id=target_node_id,
+            sequence_number=next_seq,
+            conversation_version=target_node.conversation_version,
+            role="user",
+            message_kind="auto_route",
+            content=src_msg.content,
+            source_node_id=source_node_id,
+            source_message_id=source_msg_id,
+            status="completed",
+        )
+        db.add(routed)
+        db.commit()
+        db.refresh(routed)
+        routed_id = routed.id
 
-    routed = ChatMessage(
-        node_id=target_node_id,
-        sequence_number=next_seq,
-        conversation_version=target_node.conversation_version,
-        role="user",
-        message_kind="auto_route",
-        content=src_msg.content,
-        source_node_id=source_node_id,
-        source_message_id=source_msg_id,
-        status="completed",
-    )
-    db.add(routed)
-    db.commit()
-    db.refresh(routed)
-    return routed.id
+    if not auto_run:
+        return routed_id
+
+    # Auto-run guards — re-read target to get fresh status
+    fresh_target = db.query(ChatNode).filter(ChatNode.id == target_node_id).first()
+    if not fresh_target:
+        return routed_id
+
+    if fresh_target.status == "running":
+        # Delivered but can't auto-run — flag source node
+        src = db.query(ChatNode).filter(ChatNode.id == source_node_id).first()
+        if src:
+            src.status = "needs_attention"
+            src.last_error = "Output target is already running — message delivered, retry manually"
+            db.commit()
+        return routed_id
+
+    if not fresh_target.agent_profile_id:
+        # No agent — delivered but can't run
+        fresh_target.status = "needs_attention"
+        fresh_target.last_error = "No agent assigned — message delivered but auto-run skipped"
+        db.commit()
+        return routed_id
+
+    # Spawn auto-run in a new thread (we're already in a background task)
+    t = threading.Thread(target=_auto_run_node, args=(target_node_id, None), daemon=True)
+    t.start()
+    return routed_id

@@ -950,3 +950,23 @@ def test_set_workspace_path_empty_clears_to_none(client_and_db):
     db.expire(ws)
     ws = db.query(Workspace).filter(Workspace.id == ws.id).first()
     assert ws.workspace_path is None
+
+
+def test_get_workspace_sandbox_creates_directory():
+    """_get_workspace_sandbox(999) creates the directory under ~/.chatmasala/workspaces/999/."""
+    import os
+    import shutil
+    from app.routes.workspaces import _get_workspace_sandbox
+
+    expected = os.path.join(os.path.expanduser("~"), ".chatmasala", "workspaces", "999")
+    # Clean up before the test in case it already exists
+    if os.path.exists(expected):
+        shutil.rmtree(expected)
+
+    result = _get_workspace_sandbox(999)
+
+    assert result == expected
+    assert os.path.isdir(expected)
+
+    # Cleanup
+    shutil.rmtree(expected)

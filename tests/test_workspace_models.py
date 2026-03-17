@@ -413,7 +413,7 @@ def test_no_go_sentinel_loops_back(db):
 
 
 def test_no_go_max_loops_reached(db):
-    """When NO_GO and loop_count >= max_loops, node is set to needs_attention."""
+    """When NO_GO and loop_count >= max_loops, circuit breaker routes to output and sets source idle."""
     import unittest.mock as mock
     from app.routes.workspaces import _execute_node_send
     from app.agents.cli_runner import RunResult
@@ -426,7 +426,7 @@ def test_no_go_max_loops_reached(db):
     db.add(profile)
     db.commit()
 
-    node_a = ChatNode(workspace_id=ws.id, name="A", agent_profile_id=profile.id, order_index=0, max_loops=3, loop_count=2)
+    node_a = ChatNode(workspace_id=ws.id, name="A", agent_profile_id=profile.id, order_index=0, max_loops=3, loop_count=3)
     node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1)  # output
     node_c = ChatNode(workspace_id=ws.id, name="C", order_index=2)  # loop
     db.add_all([node_a, node_b, node_c])
@@ -445,18 +445,23 @@ def test_no_go_max_loops_reached(db):
 
     fake_result = RunResult(stdout="Still not good.\nNO_GO", stderr="", exit_code=0)
     with mock.patch("app.routes.workspaces.run_agent", return_value=fake_result):
-        _execute_node_send(node_a.id, msg.id, node_a.output_node_id, node_a.loop_node_id, 3, 2, db)
+        with mock.patch("app.routes.workspaces.threading") as mock_threading:
+            mock_threading.Thread.return_value.start = mock.MagicMock()
+            _execute_node_send(node_a.id, msg.id, node_a.output_node_id, node_a.loop_node_id, 3, 3, db)
 
     db.refresh(node_a)
-    assert node_a.status == "needs_attention"
-    assert "Max loops reached" in node_a.last_error
+    # Circuit breaker with output node: source should be idle, not needs_attention
+    assert node_a.status == "idle"
+    assert node_a.last_error is None
+    # loop_count must not exceed max_loops
+    assert node_a.loop_count == 3
     # Output node should have received message (circuit breaker routes to output)
     routed = db.query(ChatMessage).filter(ChatMessage.node_id == node_b.id).first()
     assert routed is not None
 
 
-def test_neither_sentinel_sets_needs_attention(db):
-    """When loop_node_id is set but response has neither GO nor NO_GO, sets needs_attention."""
+def test_neither_sentinel_loops_back(db):
+    """When loop_node_id is set but response has neither GO nor NO_GO, treat as NO_GO and loop back."""
     import unittest.mock as mock
     from app.routes.workspaces import _execute_node_send
     from app.agents.cli_runner import RunResult
@@ -469,8 +474,8 @@ def test_neither_sentinel_sets_needs_attention(db):
     db.add(profile)
     db.commit()
 
-    node_a = ChatNode(workspace_id=ws.id, name="A", agent_profile_id=profile.id, order_index=0)
-    node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1)
+    node_a = ChatNode(workspace_id=ws.id, name="A", agent_profile_id=profile.id, order_index=0, max_loops=3, loop_count=0)
+    node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1)  # loop target (no agent — no auto-run)
     db.add_all([node_a, node_b])
     db.commit()
 
@@ -486,11 +491,19 @@ def test_neither_sentinel_sets_needs_attention(db):
 
     fake_result = RunResult(stdout="Here is some output without a sentinel.", stderr="", exit_code=0)
     with mock.patch("app.routes.workspaces.run_agent", return_value=fake_result):
-        _execute_node_send(node_a.id, msg.id, None, node_a.loop_node_id, 3, 0, db)
+        with mock.patch("app.routes.workspaces.threading") as mock_threading:
+            mock_threading.Thread.return_value.start = mock.MagicMock()
+            _execute_node_send(node_a.id, msg.id, None, node_a.loop_node_id, 3, 0, db)
 
     db.refresh(node_a)
-    assert node_a.status == "needs_attention"
-    assert "GO or NO_GO" in node_a.last_error
+    # loop_count should have been incremented to 1
+    assert node_a.loop_count == 1
+    # Node A should be idle (not at max loops yet)
+    assert node_a.status == "idle"
+    # Loop node B should have received the routed message
+    loop_msg = db.query(ChatMessage).filter(ChatMessage.node_id == node_b.id).first()
+    assert loop_msg is not None
+    assert loop_msg.message_kind == "auto_route"
 
 
 def test_no_loop_node_routes_unconditionally(db):
@@ -554,3 +567,316 @@ def test_reset_resets_loop_count(db):
 
     assert node.conversation_version == 2
     assert node.loop_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Auto-run after delivery tests
+# ---------------------------------------------------------------------------
+
+
+def test_deliver_auto_route_triggers_auto_run_on_target(db):
+    """_deliver_auto_route with auto_run=True spawns _auto_run_node in a thread."""
+    import unittest.mock as mock
+    from app.routes.workspaces import _deliver_auto_route
+
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+
+    profile = AgentProfile(name="P", provider="test", command_template="echo", instruction_file="")
+    db.add(profile)
+    db.commit()
+
+    node_a = ChatNode(workspace_id=ws.id, name="A", order_index=0)
+    node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1, agent_profile_id=profile.id)
+    db.add_all([node_a, node_b])
+    db.commit()
+
+    msg = ChatMessage(
+        node_id=node_a.id, sequence_number=1, conversation_version=1,
+        role="assistant", message_kind="assistant_reply", content="hello", status="completed",
+    )
+    db.add(msg)
+    db.commit()
+
+    with mock.patch("app.routes.workspaces.threading") as mock_threading:
+        mock_thread = mock.MagicMock()
+        mock_threading.Thread.return_value = mock_thread
+        _deliver_auto_route(node_a.id, msg.id, node_b.id, db, auto_run=True)
+
+    # Thread should have been created and started targeting node_b
+    mock_threading.Thread.assert_called_once()
+    call_kwargs = mock_threading.Thread.call_args
+    assert call_kwargs[1]["target"].__name__ == "_auto_run_node"
+    assert call_kwargs[1]["args"][0] == node_b.id
+    mock_thread.start.assert_called_once()
+
+    # Message should be delivered to node_b
+    routed = db.query(ChatMessage).filter(ChatMessage.node_id == node_b.id).first()
+    assert routed is not None
+    assert routed.message_kind == "auto_route"
+
+
+def test_deliver_auto_route_no_auto_run_when_target_running(db):
+    """_deliver_auto_route with auto_run=True and a running target: delivers msg, flags source needs_attention."""
+    import unittest.mock as mock
+    from app.routes.workspaces import _deliver_auto_route
+
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+
+    profile = AgentProfile(name="P2", provider="test", command_template="echo", instruction_file="")
+    db.add(profile)
+    db.commit()
+
+    node_a = ChatNode(workspace_id=ws.id, name="A", order_index=0)
+    node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1, agent_profile_id=profile.id, status="running")
+    db.add_all([node_a, node_b])
+    db.commit()
+
+    msg = ChatMessage(
+        node_id=node_a.id, sequence_number=1, conversation_version=1,
+        role="assistant", message_kind="assistant_reply", content="hello", status="completed",
+    )
+    db.add(msg)
+    db.commit()
+
+    with mock.patch("app.routes.workspaces.threading") as mock_threading:
+        _deliver_auto_route(node_a.id, msg.id, node_b.id, db, auto_run=True)
+        # No thread should be started
+        mock_threading.Thread.assert_not_called()
+
+    # Message should still be delivered
+    routed = db.query(ChatMessage).filter(ChatMessage.node_id == node_b.id).first()
+    assert routed is not None
+
+    # Source node should be flagged
+    db.refresh(node_a)
+    assert node_a.status == "needs_attention"
+    assert "already running" in node_a.last_error
+
+
+def test_deliver_auto_route_no_auto_run_when_no_agent(db):
+    """_deliver_auto_route with auto_run=True and target missing agent: delivers msg, flags target needs_attention."""
+    import unittest.mock as mock
+    from app.routes.workspaces import _deliver_auto_route
+
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+
+    node_a = ChatNode(workspace_id=ws.id, name="A", order_index=0)
+    node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1)  # no agent
+    db.add_all([node_a, node_b])
+    db.commit()
+
+    msg = ChatMessage(
+        node_id=node_a.id, sequence_number=1, conversation_version=1,
+        role="assistant", message_kind="assistant_reply", content="hello", status="completed",
+    )
+    db.add(msg)
+    db.commit()
+
+    with mock.patch("app.routes.workspaces.threading") as mock_threading:
+        _deliver_auto_route(node_a.id, msg.id, node_b.id, db, auto_run=True)
+        mock_threading.Thread.assert_not_called()
+
+    # Message should still be delivered
+    routed = db.query(ChatMessage).filter(ChatMessage.node_id == node_b.id).first()
+    assert routed is not None
+
+    # Target node should be flagged
+    db.refresh(node_b)
+    assert node_b.status == "needs_attention"
+    assert "No agent" in node_b.last_error
+
+
+def test_no_loop_output_route_triggers_auto_run(db):
+    """Without loop_node_id, a successful send delivers to output_node and triggers auto-run."""
+    import unittest.mock as mock
+    from app.routes.workspaces import _execute_node_send
+    from app.agents.cli_runner import RunResult
+
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+
+    profile = AgentProfile(name="P6", provider="test", command_template="echo", instruction_file="")
+    db.add(profile)
+    db.commit()
+
+    node_a = ChatNode(workspace_id=ws.id, name="A", agent_profile_id=profile.id, order_index=0)
+    node_b = ChatNode(workspace_id=ws.id, name="B", agent_profile_id=profile.id, order_index=1)
+    db.add_all([node_a, node_b])
+    db.commit()
+    node_a.output_node_id = node_b.id
+    db.commit()
+
+    msg = ChatMessage(
+        node_id=node_a.id, sequence_number=1, conversation_version=1,
+        role="assistant", message_kind="assistant_reply", content="", status="running",
+    )
+    db.add(msg)
+    db.commit()
+
+    fake_result = RunResult(stdout="Result without sentinels.", stderr="", exit_code=0)
+    with mock.patch("app.routes.workspaces.run_agent", return_value=fake_result):
+        with mock.patch("app.routes.workspaces.threading") as mock_threading:
+            mock_thread = mock.MagicMock()
+            mock_threading.Thread.return_value = mock_thread
+            _execute_node_send(node_a.id, msg.id, node_a.output_node_id, None, 3, 0, db)
+
+    # Auto-run thread should have been started for node_b
+    mock_threading.Thread.assert_called_once()
+    assert mock_threading.Thread.call_args[1]["args"][0] == node_b.id
+    mock_thread.start.assert_called_once()
+
+    # Message delivered to node_b
+    routed = db.query(ChatMessage).filter(ChatMessage.node_id == node_b.id).first()
+    assert routed is not None
+    assert routed.message_kind == "auto_route"
+
+
+def test_import_last_message_auto_run_via_background_task(tmp_path):
+    """POST /import-last enqueues _auto_run_node via BackgroundTasks when node has an agent."""
+    import unittest.mock as mock
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from fastapi.testclient import TestClient
+    from app.db import Base, get_db
+    from app.main import app
+
+    db_path = tmp_path / "import_test.db"
+    engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    TestingSession = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+    db = TestingSession()
+
+    def override_get_db():
+        try:
+            yield db
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    # Set up data
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+
+    profile = AgentProfile(name="PA", provider="test", command_template="echo", instruction_file="")
+    db.add(profile)
+    db.commit()
+
+    src_node = ChatNode(workspace_id=ws.id, name="Src", order_index=0)
+    tgt_node = ChatNode(workspace_id=ws.id, name="Tgt", order_index=1, agent_profile_id=profile.id)
+    db.add_all([src_node, tgt_node])
+    db.commit()
+
+    src_msg = ChatMessage(
+        node_id=src_node.id, sequence_number=1, conversation_version=1,
+        role="assistant", message_kind="assistant_reply", content="source content", status="completed",
+    )
+    db.add(src_msg)
+    db.commit()
+
+    with mock.patch("app.routes.workspaces._auto_run_node") as mock_auto_run:
+        with TestClient(app, raise_server_exceptions=True) as client:
+            resp = client.post(
+                f"/workspaces/{ws.id}/nodes/{tgt_node.id}/import-last",
+                data={"source_node_id": str(src_node.id)},
+                follow_redirects=False,
+            )
+
+        assert resp.status_code == 303
+
+    # Imported message should be in target node
+    imported = db.query(ChatMessage).filter(
+        ChatMessage.node_id == tgt_node.id,
+        ChatMessage.message_kind == "manual_import",
+    ).first()
+    assert imported is not None
+    assert imported.content == "source content"
+
+    # _auto_run_node should have been called
+    mock_auto_run.assert_called_once_with(tgt_node.id, None)
+
+    db.close()
+    app.dependency_overrides.clear()
+    engine.dispose()
+
+
+def test_import_last_message_no_auto_run_when_running(tmp_path):
+    """POST /import-last does NOT enqueue auto-run when target node is already running."""
+    import unittest.mock as mock
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from fastapi.testclient import TestClient
+    from app.db import Base, get_db
+    from app.main import app
+
+    db_path = tmp_path / "import_running_test.db"
+    engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    TestingSession = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+    db = TestingSession()
+
+    def override_get_db():
+        try:
+            yield db
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+
+    profile = AgentProfile(name="PB", provider="test", command_template="echo", instruction_file="")
+    db.add(profile)
+    db.commit()
+
+    src_node = ChatNode(workspace_id=ws.id, name="Src", order_index=0)
+    tgt_node = ChatNode(workspace_id=ws.id, name="Tgt", order_index=1, agent_profile_id=profile.id, status="running")
+    db.add_all([src_node, tgt_node])
+    db.commit()
+
+    src_msg = ChatMessage(
+        node_id=src_node.id, sequence_number=1, conversation_version=1,
+        role="assistant", message_kind="assistant_reply", content="source content", status="completed",
+    )
+    db.add(src_msg)
+    db.commit()
+
+    with mock.patch("app.routes.workspaces._auto_run_node") as mock_auto_run:
+        with TestClient(app, raise_server_exceptions=True) as client:
+            resp = client.post(
+                f"/workspaces/{ws.id}/nodes/{tgt_node.id}/import-last",
+                data={"source_node_id": str(src_node.id)},
+                follow_redirects=False,
+            )
+
+        assert resp.status_code == 303
+
+    # Message still imported
+    imported = db.query(ChatMessage).filter(
+        ChatMessage.node_id == tgt_node.id,
+        ChatMessage.message_kind == "manual_import",
+    ).first()
+    assert imported is not None
+
+    # No auto-run should have been enqueued
+    mock_auto_run.assert_not_called()
+
+    # No error state set on target (user-initiated action)
+    db.refresh(tgt_node)
+    assert tgt_node.status == "running"
+
+    db.close()
+    app.dependency_overrides.clear()
+    engine.dispose()

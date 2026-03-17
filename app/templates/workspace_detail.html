@@ -58,9 +58,14 @@
         <span class="ws-path-label">Path:</span>
         <span class="workspace-path-display" id="ws-path-display"
               onclick="startWsPathEdit()"
-              title="Click to set workspace path">
-          {% if workspace.workspace_path %}{{ workspace.workspace_path }}{% else %}<em class="muted">Not set — click to add</em>{% endif %}
+              title="Click to set a custom project path">
+          {% if workspace.workspace_path %}
+            {{ workspace.workspace_path }}
+          {% else %}
+            <em class="muted" title="Default sandbox — agents are isolated here">Sandbox: {{ sandbox_path }}</em>
+          {% endif %}
         </span>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="openBrowseModal()" style="flex-shrink:0">Browse…</button>
         <form method="post" action="/workspaces/{{ workspace.id }}/set-path"
               id="ws-path-form" style="display:none">
           <input type="text" name="workspace_path" id="ws-path-input"
@@ -283,6 +288,23 @@
     {% endfor %}
   </div>
 
+</div>
+
+<!-- Directory browser modal -->
+<div id="browse-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:1000; align-items:center; justify-content:center;">
+  <div style="background:var(--bg-card); border-radius:12px; width:500px; max-height:70vh; display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,0.3); overflow:hidden;">
+    <div style="padding:16px 20px; border-bottom:1px solid var(--border-color); display:flex; align-items:center; gap:8px;">
+      <button type="button" id="browse-up-btn" onclick="browseUp()" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-secondary);padding:2px 6px;" title="Up">↑</button>
+      <span id="browse-current-path" style="flex:1; font-family:var(--font-mono); font-size:12px; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
+      <button type="button" onclick="closeBrowseModal()" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-muted);">✕</button>
+    </div>
+    <div id="browse-entries" style="flex:1; overflow-y:auto; padding:8px 0;"></div>
+    <div style="padding:12px 20px; border-top:1px solid var(--border-color); display:flex; gap:8px; justify-content:flex-end; align-items:center;">
+      <span id="browse-selected-label" style="flex:1; font-family:var(--font-mono); font-size:12px; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis;"></span>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="closeBrowseModal()">Cancel</button>
+      <button type="button" class="btn btn-primary btn-sm" id="browse-select-btn" onclick="selectBrowsedPath()">Select Folder</button>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
@@ -508,5 +530,75 @@ function handleNodeNameKey(e, nodeId) {
     document.getElementById('node-rename-form-' + nodeId).style.display = 'none';
   }
 }
+
+// ── Directory browser modal ───────────────────────────────
+var _browsePath = '';
+
+function openBrowseModal() {
+  var modal = document.getElementById('browse-modal');
+  modal.style.display = 'flex';
+  // Start from current workspace path or home
+  var current = document.getElementById('ws-path-input').value.trim();
+  browseLoad(current || '');
+}
+
+function closeBrowseModal() {
+  document.getElementById('browse-modal').style.display = 'none';
+}
+
+function browseLoad(path) {
+  fetch('/api/browse?path=' + encodeURIComponent(path))
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      _browsePath = data.current;
+      document.getElementById('browse-current-path').textContent = data.current;
+      document.getElementById('browse-selected-label').textContent = data.current;
+      document.getElementById('browse-up-btn').disabled = !data.parent;
+
+      var entries = document.getElementById('browse-entries');
+      entries.innerHTML = '';
+      data.entries.forEach(function(e) {
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 20px;cursor:pointer;border-radius:4px;';
+        row.innerHTML = '<span style="font-size:16px;">📁</span><span style="font-size:13px;font-family:var(--font-mono);">' + e.name + '</span>';
+        row.onmouseover = function() { row.style.background = 'var(--bg-sidebar)'; };
+        row.onmouseout  = function() { row.style.background = ''; };
+        row.onclick = function() { browseLoad(e.path); };
+        entries.appendChild(row);
+      });
+      if (data.entries.length === 0) {
+        entries.innerHTML = '<p style="text-align:center;color:var(--text-muted);padding:20px;font-size:13px;">No subfolders</p>';
+      }
+    })
+    .catch(function() {
+      document.getElementById('browse-entries').innerHTML = '<p style="text-align:center;color:#991b1b;padding:20px;font-size:13px;">Could not read directory</p>';
+    });
+}
+
+function browseUp() {
+  var current = document.getElementById('browse-current-path').textContent;
+  fetch('/api/browse?path=' + encodeURIComponent(current))
+    .then(function(r) { return r.json(); })
+    .then(function(data) { if (data.parent) browseLoad(data.parent); });
+}
+
+function selectBrowsedPath() {
+  var path = _browsePath;
+  if (!path) return;
+  var input = document.getElementById('ws-path-input');
+  input.value = path;
+  closeBrowseModal();
+  document.getElementById('ws-path-form').submit();
+}
+
+// Close modal on backdrop click
+document.addEventListener('DOMContentLoaded', function() {
+  var modal = document.getElementById('browse-modal');
+  if (modal) {
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) closeBrowseModal();
+    });
+  }
+});
 </script>
 {% endblock %}

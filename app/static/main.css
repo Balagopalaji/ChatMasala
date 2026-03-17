@@ -1094,6 +1094,8 @@ details[open] > .advanced-toggle::before {
   display: flex;
   flex-direction: column;
   min-width: 380px;
+  max-width: 480px;
+  width: 380px;
   flex-shrink: 0;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
