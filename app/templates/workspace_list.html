@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}ChatMasala — Workspaces{% endblock %}
+
+{% block sidebar_runs %}
+{% for ws in workspaces %}
+<a href="/workspaces/{{ ws.id }}" class="run-item">
+  <span class="run-item-title">{{ ws.title | truncate(26, True) }}</span>
+  <span class="run-item-meta">
+    <span class="run-item-time">{{ ws.updated_at.strftime("%m/%d %H:%M") if ws.updated_at else "" }}</span>
+  </span>
+</a>
+{% endfor %}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Workspaces</h1>
+  <a href="/workspaces/new" class="btn btn-primary">New Workspace</a>
+</div>
+{% if workspaces %}
+<div class="run-cards">
+  {% for ws in workspaces %}
+  <a href="/workspaces/{{ ws.id }}" class="run-card">
+    <div class="run-card-header">
+      <span class="run-card-title">{{ ws.title }}</span>
+      <span class="run-item-time">{{ ws.updated_at.strftime("%Y-%m-%d %H:%M") if ws.updated_at else "—" }}</span>
+    </div>
+    {% if ws.workspace_path %}
+    <p class="run-card-goal"><code>{{ ws.workspace_path }}</code></p>
+    {% endif %}
+    <div class="run-card-meta">
+      <span>{{ ws.nodes | length }} node(s)</span>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<p class="empty-state">No workspaces yet. <a href="/workspaces/new">Create one</a>.</p>
+{% endif %}
+{% endblock %}

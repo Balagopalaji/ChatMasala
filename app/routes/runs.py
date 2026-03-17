@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 import app.orchestrator as orchestrator
 from app.db import get_db
-from app.models import AgentProfile, Run, Turn, UserNote
+from app.models import AgentProfile, ChatMessage, ChatNode, Run, Turn, UserNote, Workspace
 
 router = APIRouter()
 BASE_DIR = Path(__file__).parent.parent  # routes/ -> app/
@@ -26,6 +26,12 @@ SUPPORTED_WORKFLOWS = {"single_agent", "builder_reviewer"}
 
 
 @router.get("/", response_class=HTMLResponse)
+async def home(request: Request, db: Session = Depends(get_db)):
+    workspaces = db.query(Workspace).order_by(Workspace.updated_at.desc()).all()
+    return templates.TemplateResponse(request, "workspace_list.html", {"workspaces": workspaces})
+
+
+@router.get("/runs", response_class=HTMLResponse)
 async def run_list(request: Request, db: Session = Depends(get_db)):
     runs = db.query(Run).order_by(Run.updated_at.desc()).all()
     return templates.TemplateResponse(

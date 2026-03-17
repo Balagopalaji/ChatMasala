@@ -1,6 +1,8 @@
 """Settings routes — agent profile management."""
 
 from pathlib import Path
+import shutil
+import subprocess as _subprocess
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -16,13 +18,64 @@ BASE_DIR = Path(__file__).parent.parent  # routes/ -> app/
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 
+@router.get("/api/cli-providers")
+def cli_providers_status(db: Session = Depends(get_db)):
+    """Return detected state for each built-in CLI provider."""
+    providers = []
+    for key, name, cmd in [
+        ("claude_cli", "Claude CLI", "claude"),
+        ("codex_cli", "Codex CLI", "codex"),
+        ("gemini_cli", "Gemini CLI", "gemini"),
+    ]:
+        detected = shutil.which(cmd) is not None
+        providers.append({
+            "key": key,
+            "name": name,
+            "command": cmd,
+            "detected": detected,
+        })
+    return providers
+
+
+@router.post("/api/cli-providers/test")
+async def test_cli_connection(command: str = Form(...)):
+    """Run a quick test of the given CLI command."""
+    import shlex
+    try:
+        cmd_parts = shlex.split(command)
+        if not cmd_parts:
+            return {"success": False, "output": "No command provided"}
+        # Try --version or --help as a safe probe
+        probe = cmd_parts + ["--version"]
+        result = _subprocess.run(probe, capture_output=True, text=True, timeout=10)
+        output = (result.stdout or result.stderr or "").strip()[:500]
+        return {"success": result.returncode == 0, "output": output or "(no output)"}
+    except _subprocess.TimeoutExpired:
+        return {"success": False, "output": "Timed out"}
+    except FileNotFoundError:
+        return {"success": False, "output": "Command not found"}
+    except Exception as e:
+        return {"success": False, "output": str(e)}
+
+
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request, db: Session = Depends(get_db)):
-    profiles = db.query(AgentProfile).order_by(AgentProfile.name).all()
+    builtins = (
+        db.query(AgentProfile)
+        .filter(AgentProfile.is_builtin == True)  # noqa: E712
+        .order_by(AgentProfile.sort_order)
+        .all()
+    )
+    custom_agents = (
+        db.query(AgentProfile)
+        .filter(AgentProfile.is_builtin == False)  # noqa: E712
+        .order_by(AgentProfile.name)
+        .all()
+    )
     return templates.TemplateResponse(
         request,
         "settings.html",
-        {"profiles": profiles},
+        {"builtins": builtins, "custom_agents": custom_agents},
     )
 
 

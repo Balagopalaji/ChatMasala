@@ -1,8 +1,18 @@
 # ChatMasala MVP Build Spec
 
-This document is the active source of truth for implementation.
+> **NOTICE — This spec is outdated and secondary.**
+>
+> `docs/build-plan.md` is the active source of truth for the current implementation pass.
+>
+> This document describes the earlier run/preset product model (single_agent, builder_reviewer). That model has been superseded by the workspace-first direction documented in `docs/build-plan.md`.
+>
+> Where this spec conflicts with `docs/build-plan.md`, follow `docs/build-plan.md`.
+>
+> This file is retained for reference only.
 
-Written for AI coding agents. Follow it literally. Do not expand scope unless this file is updated.
+---
+
+Written for AI coding agents. Do not use this spec to drive new implementation. See `docs/build-plan.md` instead.
 
 For the current implementation sequence, use `docs/build-plan.md`.
 

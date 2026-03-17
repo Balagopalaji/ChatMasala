@@ -442,15 +442,15 @@ But those should **not** be implemented in this pass.
 
 ## 10. Proposed Phases
 
-- [ ] Phase 0 — Scope Lock And Active-Doc Alignment
-- [ ] Phase 1 — Navigation And Vocabulary Cleanup
-- [ ] Phase 2 — Agent UX Reframe
-- [ ] Phase 3 — Workspace Selection UX
-- [ ] Phase 4 — Workspace / Node / Message Foundation
-- [ ] Phase 5 — Workspace UI Cut-In
-- [ ] Phase 6 — Routing / Import / Reset Behavior
-- [ ] Phase 7 — Settings / Advanced Agent Cleanup
-- [ ] Phase 8 — Cutover And Legacy Retirement
+- [x] Phase 0 — Scope Lock And Active-Doc Alignment
+- [x] Phase 1 — Navigation And Vocabulary Cleanup
+- [x] Phase 2 — Agent UX Reframe
+- [x] Phase 3 — Workspace Selection UX
+- [x] Phase 4 — Workspace / Node / Message Foundation
+- [x] Phase 5 — Workspace UI Cut-In
+- [x] Phase 6 — Routing / Import / Reset Behavior
+- [x] Phase 7 — Settings / Advanced Agent Cleanup
+- [x] Phase 8 — Cutover And Legacy Retirement
 
 ---
 
@@ -460,10 +460,10 @@ But those should **not** be implemented in this pass.
 
 ### Required outcomes
 
-- [ ] `README.md` no longer describes the app primarily as a run/preset tool.
-- [ ] `AGENTS.md` points builders to this workspace-first plan.
-- [ ] `docs/mvp-build-spec.md` is marked as outdated or secondary wherever it still contradicts this plan.
-- [ ] Active docs explicitly state:
+- [x] `README.md` no longer describes the app primarily as a run/preset tool.
+- [x] `AGENTS.md` points builders to this workspace-first plan.
+- [x] `docs/mvp-build-spec.md` is marked as outdated or secondary wherever it still contradicts this plan.
+- [x] Active docs explicitly state:
   - workspace-first direction
   - bounded rebuild, not full rewrite
   - mockups are design intent, not production code
@@ -487,10 +487,10 @@ But those should **not** be implemented in this pass.
 
 ### Required outcomes
 
-- [ ] sidebar `+ New Run` no longer links to `/threads/new`
-- [ ] logo/home is clickable
-- [ ] stale thread wording is removed from active surfaces
-- [ ] “Agent Profile” wording is removed from the main workflow UI
+- [x] sidebar `+ New Run` no longer links to `/threads/new`
+- [x] logo/home is clickable
+- [x] stale thread wording is removed from active surfaces
+- [x] “Agent Profile” wording is removed from the main workflow UI
 
 ### Risks / gotchas
 
@@ -511,15 +511,15 @@ But those should **not** be implemented in this pass.
 
 ### Required outcomes
 
-- [ ] main UI says `Agent`, not `Agent Profile`
-- [ ] seeded/default selectable agents look like real choices, e.g.:
+- [x] main UI says `Agent`, not `Agent Profile`
+- [x] seeded/default selectable agents look like real choices, e.g.:
   - Claude Sonnet
   - Claude Opus
   - Codex CLI
   - Gemini CLI
   - Custom
-- [ ] internal prompt/instruction-file details are hidden from normal workflow creation
-- [ ] advanced settings still allow power-user editing if needed
+- [x] internal prompt/instruction-file details are hidden from normal workflow creation
+- [x] advanced settings still allow power-user editing if needed
 
 ### Risks / gotchas
 
@@ -540,10 +540,10 @@ But those should **not** be implemented in this pass.
 
 ### Required outcomes
 
-- [ ] workspace path can be selected through a `Browse...` flow
-- [ ] manual path entry remains available as fallback
-- [ ] selected workspace is clearly visible in the workspace shell
-- [ ] behavior is browser-first and simple; no Electron dependency
+- [x] workspace path can be selected through a `Browse...` flow
+- [x] manual path entry remains available as fallback
+- [x] selected workspace is clearly visible in the workspace shell
+- [x] behavior is browser-first and simple; no Electron dependency
 
 ### Risks / gotchas
 
@@ -565,11 +565,11 @@ But those should **not** be implemented in this pass.
 
 ### Required outcomes
 
-- [ ] a top-level workspace/session model exists
-- [ ] chat nodes are first-class persisted objects
-- [ ] node messages/transcripts are first-class persisted objects
-- [ ] current model choices do not force the app back into one/two-lane fixed workflows
-- [ ] the DB strategy is explicit and bounded
+- [x] a top-level workspace/session model exists
+- [x] chat nodes are first-class persisted objects
+- [x] node messages/transcripts are first-class persisted objects
+- [x] current model choices do not force the app back into one/two-lane fixed workflows
+- [x] the DB strategy is explicit and bounded
 
 ### Build guidance
 
@@ -597,11 +597,11 @@ But those should **not** be implemented in this pass.
 
 ### Required outcomes
 
-- [ ] top workflow representation exists
-- [ ] lower chat panels exist
-- [ ] both reflect the same shared state/model
-- [ ] clicking/focusing a node in one view maps clearly to the other
-- [ ] each chat panel supports:
+- [x] top workflow representation exists
+- [x] lower chat panels exist
+- [x] both reflect the same shared state/model
+- [x] clicking/focusing a node in one view maps clearly to the other
+- [x] each chat panel supports:
   - rename
   - delete
   - choose agent
@@ -631,12 +631,12 @@ Preferred implementation direction:
 
 ### Required outcomes
 
-- [ ] each node can set one downstream automatic route
-- [ ] manual import of the latest assistant message from another node works
-- [ ] output routing and manual import are clearly distinct concepts in UI and code
-- [ ] imported or auto-routed messages visibly show their source node/message provenance
-- [ ] nodes can be reset/refreshed without deleting their configuration
-- [ ] standalone nodes still work normally with no route
+- [x] each node can set one downstream automatic route
+- [x] manual import of the latest assistant message from another node works
+- [x] output routing and manual import are clearly distinct concepts in UI and code
+- [x] imported or auto-routed messages visibly show their source node/message provenance
+- [x] nodes can be reset/refreshed without deleting their configuration
+- [x] standalone nodes still work normally with no route
 
 ### Explicit deferrals
 
@@ -660,14 +660,14 @@ Preferred implementation direction:
 
 ### Required outcomes
 
-- [ ] settings are framed around agents/providers/advanced config
-- [ ] settings include a clear `CLI Providers` section, not just relabeled profile forms
-- [ ] users can see detected/connected state for supported CLIs
-- [ ] users can run `Test Connection` for supported CLIs
-- [ ] normal workspace agent selection is backed by provider presets, not raw profile records
-- [ ] advanced `.md` instruction file handling stays available, but not front-and-center
-- [ ] custom agents are easier to create than the current raw form
-- [ ] settings do not feel like the main entry point of the product
+- [x] settings are framed around agents/providers/advanced config
+- [x] settings include a clear `CLI Providers` section, not just relabeled profile forms
+- [x] users can see detected/connected state for supported CLIs
+- [x] users can run `Test Connection` for supported CLIs
+- [x] normal workspace agent selection is backed by provider presets, not raw profile records
+- [x] advanced `.md` instruction file handling stays available, but not front-and-center
+- [x] custom agents are easier to create than the current raw form
+- [x] settings do not feel like the main entry point of the product
 
 ### Risks / gotchas
 
@@ -681,10 +681,10 @@ Preferred implementation direction:
 
 ### Required outcomes
 
-- [ ] `/` lands on the workspace-first experience
-- [ ] old run-first pages are removed or demoted
-- [ ] no active nav path leads users into the obsolete product flow
-- [ ] active docs/tests describe the workspace product, not the older run-first app
+- [x] `/` lands on the workspace-first experience
+- [x] old run-first pages are removed or demoted
+- [x] no active nav path leads users into the obsolete product flow
+- [x] active docs/tests describe the workspace product, not the older run-first app
 
 ### Risks / gotchas
 

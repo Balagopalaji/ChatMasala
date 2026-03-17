@@ -1,36 +1,142 @@
 {% extends "base.html" %}
-{% block title %}Agent Profiles{% endblock %}
+{% block title %}Settings — ChatMasala{% endblock %}
 {% block content %}
 <div class="page-header">
-  <h1>Agent Profiles</h1>
-  <a href="/settings/profiles/new" class="btn btn-primary">New Profile</a>
+  <h1>Settings</h1>
 </div>
 
-{% if profiles %}
-<div class="profile-list">
-  {% for profile in profiles %}
-  <div class="profile-card">
-    <div class="profile-card-header">
-      <h3>{{ profile.name }}</h3>
-      <span class="badge badge-provider">{{ profile.provider }}</span>
-    </div>
-    <div class="profile-card-body">
-      <div class="profile-field">
-        <label>Command</label>
-        <code>{{ profile.command_template }}</code>
-      </div>
-      <div class="profile-field">
-        <label>Instruction File</label>
-        <code>{{ profile.instruction_file }}</code>
-      </div>
-    </div>
-    <div class="profile-card-actions">
-      <a href="/settings/profiles/{{ profile.id }}/edit" class="btn btn-secondary btn-sm">Edit</a>
-    </div>
+<!-- CLI Providers -->
+<section class="settings-section">
+  <h2 class="settings-section-title">CLI Providers</h2>
+  <p class="settings-section-desc">Connect the CLI tools that power your chat nodes.</p>
+  <div class="provider-list" id="provider-list">
+    <p class="empty-state" style="font-size:13px">Loading providers…</p>
   </div>
-  {% endfor %}
-</div>
-{% else %}
-<p class="empty-state">No profiles yet. <a href="/settings/profiles/new">Create one</a>.</p>
-{% endif %}
+</section>
+
+<!-- Built-in Agents -->
+<section class="settings-section">
+  <h2 class="settings-section-title">Built-in Agents</h2>
+  <p class="settings-section-desc">Pre-configured agents based on connected CLI providers.</p>
+  {% if builtins %}
+  <div class="profile-list">
+    {% for profile in builtins %}
+    <div class="profile-card">
+      <div class="profile-card-header">
+        <h3>{{ profile.name }}</h3>
+        <span class="badge badge-provider">{{ profile.provider }}</span>
+        <span class="badge" style="background:#dcfce7;color:#166534">built-in</span>
+      </div>
+      <div class="profile-card-body">
+        <div class="profile-field">
+          <label>Command</label>
+          <code>{{ profile.command_template }}</code>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty-state">No built-in agents seeded yet.</p>
+  {% endif %}
+</section>
+
+<!-- Custom Agents -->
+<section class="settings-section">
+  <h2 class="settings-section-title">Custom Agents</h2>
+  <p class="settings-section-desc">Your own agent configurations with custom commands and instructions.</p>
+  <div style="margin-bottom:12px">
+    <a href="/settings/profiles/new" class="btn btn-primary btn-sm">+ New Custom Agent</a>
+  </div>
+  {% if custom_agents %}
+  <div class="profile-list">
+    {% for profile in custom_agents %}
+    <div class="profile-card">
+      <div class="profile-card-header">
+        <h3>{{ profile.name }}</h3>
+        <span class="badge badge-provider">{{ profile.provider }}</span>
+      </div>
+      <div class="profile-card-body">
+        <div class="profile-field">
+          <label>Command</label>
+          <code>{{ profile.command_template }}</code>
+        </div>
+        {% if profile.instruction_file %}
+        <div class="profile-field">
+          <label>Instruction File</label>
+          <code>{{ profile.instruction_file }}</code>
+        </div>
+        {% endif %}
+      </div>
+      <div class="profile-card-actions">
+        <a href="/settings/profiles/{{ profile.id }}/edit" class="btn btn-secondary btn-sm">Edit</a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty-state">No custom agents yet. <a href="/settings/profiles/new">Create one</a>.</p>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Load CLI providers status dynamically
+async function loadProviders() {
+  const list = document.getElementById('provider-list');
+  try {
+    const res = await fetch('/api/cli-providers');
+    const providers = await res.json();
+    list.innerHTML = '';
+    for (const p of providers) {
+      const card = document.createElement('div');
+      card.className = 'provider-card';
+      card.innerHTML = `
+        <div class="provider-card-header">
+          <span class="provider-name">${p.name}</span>
+          <span class="provider-status ${p.detected ? 'detected' : 'not-detected'}">
+            ${p.detected ? '● Detected' : '○ Not detected'}
+          </span>
+        </div>
+        <div class="provider-card-body">
+          <div class="provider-cmd-row">
+            <input type="text" class="provider-cmd-input form-control" id="cmd-${p.key}" value="${p.command}" style="font-family:monospace;font-size:12px">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="testProvider('${p.key}')">Test Connection</button>
+          </div>
+          <div class="provider-test-result" id="result-${p.key}" style="display:none;margin-top:8px;font-size:12px;font-family:monospace;padding:6px 8px;border-radius:4px;"></div>
+        </div>
+      `;
+      list.appendChild(card);
+    }
+  } catch (e) {
+    list.innerHTML = '<p class="empty-state" style="font-size:13px">Failed to load providers.</p>';
+  }
+}
+
+async function testProvider(key) {
+  const input = document.getElementById('cmd-' + key);
+  const resultEl = document.getElementById('result-' + key);
+  const cmd = input.value.trim();
+  resultEl.style.display = 'block';
+  resultEl.style.background = '#f1f5f9';
+  resultEl.style.color = '#475569';
+  resultEl.textContent = 'Testing…';
+  try {
+    const formData = new FormData();
+    formData.append('command', cmd);
+    const res = await fetch('/api/cli-providers/test', { method: 'POST', body: formData });
+    const data = await res.json();
+    resultEl.style.background = data.success ? '#dcfce7' : '#fee2e2';
+    resultEl.style.color = data.success ? '#166534' : '#991b1b';
+    resultEl.textContent = data.output;
+  } catch (e) {
+    resultEl.style.background = '#fee2e2';
+    resultEl.style.color = '#991b1b';
+    resultEl.textContent = 'Request failed: ' + e.message;
+  }
+}
+
+loadProviders();
+</script>
 {% endblock %}

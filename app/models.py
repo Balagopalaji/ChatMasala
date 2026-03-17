@@ -83,5 +83,72 @@ class AgentProfile(Base):
     provider = Column(String, nullable=False, default="claude")
     command_template = Column(String, nullable=False)
     instruction_file = Column(String, nullable=False)
+    # Phase 2 additions — clean schema reset acceptable per AGENTS.md
+    is_builtin = Column(Boolean, default=False, nullable=False, server_default="0")
+    builtin_key = Column(String, nullable=True)
+    sort_order = Column(Integer, default=0, nullable=False, server_default="0")
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — Workspace / Node / Message models
+# ---------------------------------------------------------------------------
+
+
+class Workspace(Base):
+    __tablename__ = "workspaces"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    workspace_path = Column(String, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    nodes = relationship("ChatNode", back_populates="workspace", cascade="all, delete-orphan", order_by="ChatNode.order_index")
+
+
+class ChatNode(Base):
+    __tablename__ = "chat_nodes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False)
+    name = Column(String, nullable=False)
+    agent_profile_id = Column(Integer, ForeignKey("agent_profiles.id"), nullable=True)
+    downstream_node_id = Column(Integer, ForeignKey("chat_nodes.id"), nullable=True)
+    order_index = Column(Integer, default=0, nullable=False)
+    status = Column(String, nullable=False, default="idle")  # idle | running | needs_attention
+    last_error = Column(Text, nullable=True)
+    conversation_version = Column(Integer, default=1, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    workspace = relationship("Workspace", back_populates="nodes")
+    agent_profile = relationship("AgentProfile", foreign_keys=[agent_profile_id])
+    downstream_node = relationship("ChatNode", remote_side="ChatNode.id", foreign_keys="[ChatNode.downstream_node_id]")
+    messages = relationship("ChatMessage", back_populates="node", cascade="all, delete-orphan", order_by="ChatMessage.sequence_number", foreign_keys="[ChatMessage.node_id]")
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    node_id = Column(Integer, ForeignKey("chat_nodes.id"), nullable=False)
+    sequence_number = Column(Integer, nullable=False)
+    conversation_version = Column(Integer, nullable=False, default=1)
+    role = Column(String, nullable=False)  # user | assistant | system
+    message_kind = Column(String, nullable=False, default="manual_user")
+    # manual_user | manual_import | auto_route | assistant_reply | reset_marker | error
+    content = Column(Text, nullable=False, default="")
+    source_node_id = Column(Integer, ForeignKey("chat_nodes.id"), nullable=True)
+    source_message_id = Column(Integer, ForeignKey("chat_messages.id"), nullable=True)
+    prompt_text = Column(Text, nullable=True)
+    raw_output_text = Column(Text, nullable=True)
+    status = Column(String, nullable=False, default="completed")  # completed | running | failed
+    error_text = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    completed_at = Column(DateTime, nullable=True)
+
+    node = relationship("ChatNode", back_populates="messages", foreign_keys=[node_id])
+    source_node = relationship("ChatNode", foreign_keys=[source_node_id])
+    source_message = relationship("ChatMessage", remote_side="ChatMessage.id", foreign_keys="[ChatMessage.source_message_id]")

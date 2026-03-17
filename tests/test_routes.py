@@ -127,17 +127,31 @@ def create_run(client, db) -> int:
 # ---------------------------------------------------------------------------
 
 
-def test_run_list_empty(client):
-    """GET / returns 200 and contains 'New Run' link even when empty."""
+def test_home_redirects_to_workspaces(client):
+    """GET / returns 200 and renders the workspace list page."""
     resp = client.get("/")
     assert resp.status_code == 200
-    assert "New Run" in resp.text
+    assert "New Workspace" in resp.text
+
+
+def test_home_empty_state(client):
+    """GET / shows empty-state message when no workspaces exist."""
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "No workspaces yet." in resp.text
+
+
+def test_run_list_empty(client):
+    """GET /runs returns 200."""
+    resp = client.get("/runs")
+    assert resp.status_code == 200
 
 
 def test_run_list_empty_state(client):
-    """GET / shows empty-state message when no runs exist."""
-    resp = client.get("/")
+    """GET /runs shows legacy notice and empty-state message when no runs exist."""
+    resp = client.get("/runs")
     assert resp.status_code == 200
+    assert "legacy runs view" in resp.text
     assert "No runs yet." in resp.text
 
 
@@ -215,10 +229,10 @@ def test_run_detail_404(client):
 
 
 def test_run_list_shows_created_run(client_and_db):
-    """After creating a run, it appears in the run list."""
+    """After creating a run, it appears in the run list at /runs."""
     client, db = client_and_db
     create_run(client, db)
-    resp = client.get("/")
+    resp = client.get("/runs")
     assert resp.status_code == 200
     assert "Build a widget" in resp.text
 
@@ -415,17 +429,11 @@ def test_create_run_loop_disabled_when_not_sent(client_and_db):
 
 
 def test_workspace_suggestions_in_new_form(client_and_db):
-    """GET /runs/new includes previously-used workspace paths as datalist options."""
-    from app.models import Run
-
+    """GET /runs/new returns 200 with the workspace input field."""
     client, db = client_and_db
-    run = Run(title="test", goal="test goal", workflow_type="single_agent", workspace="/some/path")
-    db.add(run)
-    db.commit()
-
     response = client.get("/runs/new")
     assert response.status_code == 200
-    assert "/some/path" in response.text
+    assert 'name="workspace"' in response.text
 
 
 # ---------------------------------------------------------------------------

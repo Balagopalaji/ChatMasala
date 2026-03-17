@@ -13,15 +13,15 @@
   <div class="app-shell">
     <aside class="sidebar">
       <div class="sidebar-header">
-        <span class="logo">🌶 ChatMasala</span>
+        <a href="/" class="logo">🌶 ChatMasala</a>
         <a href="/settings" class="settings-link" title="Settings">⚙</a>
       </div>
-      <div class="sidebar-section-label">Runs</div>
-      <nav class="run-list">
+      <div class="sidebar-section-label">Workspaces</div>
+      <nav class="workspace-list">
         {% block sidebar_runs %}{% endblock %}
       </nav>
       <div class="sidebar-footer">
-        <a href="/threads/new" class="new-run-btn">+ New Run</a>
+        <a href="/workspaces/new" class="new-run-btn">+ New Workspace</a>
       </div>
     </aside>
     <main class="main-content">

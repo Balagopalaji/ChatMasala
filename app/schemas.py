@@ -97,3 +97,82 @@ class AgentProfileResponse(BaseModel):
     command_template: str
     instruction_file: str
     model_config = ConfigDict(from_attributes=True)
+
+
+# ---------------------------------------------------------------------------
+# Workspace schemas
+# ---------------------------------------------------------------------------
+
+
+class WorkspaceBase(BaseModel):
+    title: str
+    workspace_path: Optional[str] = None
+
+
+class WorkspaceCreate(WorkspaceBase):
+    pass
+
+
+class WorkspaceRead(WorkspaceBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# ChatNode schemas
+# ---------------------------------------------------------------------------
+
+
+class ChatNodeBase(BaseModel):
+    name: str
+    agent_profile_id: Optional[int] = None
+    downstream_node_id: Optional[int] = None
+    order_index: int = 0
+
+
+class ChatNodeCreate(ChatNodeBase):
+    workspace_id: int
+
+
+class ChatNodeRead(ChatNodeBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    workspace_id: int
+    status: str
+    last_error: Optional[str] = None
+    conversation_version: int
+    created_at: datetime
+    updated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# ChatMessage schemas
+# ---------------------------------------------------------------------------
+
+
+class ChatMessageBase(BaseModel):
+    role: str
+    message_kind: str = "manual_user"
+    content: str = ""
+    source_node_id: Optional[int] = None
+    source_message_id: Optional[int] = None
+
+
+class ChatMessageCreate(ChatMessageBase):
+    node_id: int
+    sequence_number: int
+    conversation_version: int = 1
+
+
+class ChatMessageRead(ChatMessageBase):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    node_id: int
+    sequence_number: int
+    conversation_version: int
+    status: str
+    error_text: Optional[str] = None
+    created_at: datetime
+    completed_at: Optional[datetime] = None

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}New Workspace{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>New Workspace</h1>
+</div>
+<form method="post" action="/workspaces" class="run-form">
+  <div class="form-group">
+    <label for="title">Title</label>
+    <input type="text" id="title" name="title" required placeholder="My Project" class="form-control">
+  </div>
+  <div class="form-group">
+    <label for="workspace">Workspace Path (optional)</label>
+    <div class="workspace-input-row">
+      <input type="text" id="workspace" name="workspace_path"
+             placeholder="/path/to/your/project" class="workspace-path-input form-control">
+      <button type="button" class="btn btn-secondary btn-sm" onclick="openBrowser()">Browse…</button>
+    </div>
+    <div id="dir-browser" class="dir-browser" style="display:none;">
+      <div class="dir-browser-header">
+        <span id="dir-current-path" class="dir-current"></span>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="selectCurrentDir()">Select this folder</button>
+      </div>
+      <div id="dir-entries" class="dir-entries"></div>
+    </div>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Create Workspace</button>
+    <a href="/" class="btn btn-secondary">Cancel</a>
+  </div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+async function browseTo(path) {
+  const url = path ? `/api/browse?path=${encodeURIComponent(path)}` : '/api/browse';
+  const res = await fetch(url);
+  const data = await res.json();
+  document.getElementById('dir-current-path').textContent = data.current;
+  document.getElementById('dir-browser')._currentPath = data.current;
+  const entries = document.getElementById('dir-entries');
+  entries.innerHTML = '';
+  if (data.parent) {
+    const up = document.createElement('div');
+    up.className = 'dir-entry dir-entry-parent';
+    up.textContent = '↑ ..';
+    up.onclick = () => browseTo(data.parent);
+    entries.appendChild(up);
+  }
+  for (const e of data.entries) {
+    const el = document.createElement('div');
+    el.className = 'dir-entry';
+    el.textContent = '📁 ' + e.name;
+    el.onclick = () => browseTo(e.path);
+    entries.appendChild(el);
+  }
+}
+function openBrowser() {
+  const browser = document.getElementById('dir-browser');
+  const pathInput = document.getElementById('workspace');
+  const startPath = pathInput.value || null;
+  browser.style.display = browser.style.display === 'none' ? 'block' : 'none';
+  if (browser.style.display === 'block') browseTo(startPath);
+}
+function selectCurrentDir() {
+  const path = document.getElementById('dir-browser')._currentPath;
+  document.getElementById('workspace').value = path;
+  document.getElementById('dir-browser').style.display = 'none';
+}
+</script>
+{% endblock %}

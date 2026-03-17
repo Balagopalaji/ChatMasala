@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}ChatMasala — Runs{% endblock %}
+{% block title %}ChatMasala{% endblock %}
 
 {% block sidebar_runs %}
 {% for run in runs %}
@@ -15,11 +15,15 @@
 {% endblock %}
 
 {% block content %}
+<div class="notice-legacy">
+  <strong>This is the legacy runs view.</strong> The current home is <a href="/">Workspaces</a>.
+</div>
+
 <div class="welcome-state">
   <div class="welcome-logo">🌶</div>
   <h1 class="welcome-heading">ChatMasala</h1>
-  <p class="welcome-desc">Orchestrate two AI agents without copy-paste.</p>
-  <a href="/runs/new" class="btn btn-primary welcome-cta">Start a new run →</a>
+  <p class="welcome-desc">Your workspace-first multi-chat routing app.</p>
+  <a href="/workspaces/new" class="btn btn-primary welcome-cta">Start a new workspace →</a>
 
   {% if not runs %}
   <p class="empty-state">No runs yet.</p>
@@ -29,8 +33,8 @@
 {% if runs %}
 <div class="thread-list-main">
   <div class="page-header">
-    <h2>Recent Runs</h2>
-    <a href="/runs/new" class="btn btn-primary">New Run</a>
+    <h2>Legacy Runs</h2>
+    <a href="/workspaces/new" class="btn btn-primary">New Workspace</a>
   </div>
   <div class="run-cards">
     {% for run in runs %}

@@ -69,9 +69,71 @@ def seed_default_profiles() -> None:
         db.close()
 
 
+BUILTIN_AGENTS = [
+    {
+        "name": "Claude Sonnet",
+        "provider": "claude",
+        "command_template": "claude --model claude-sonnet-4-5",
+        "instruction_file": "",
+        "is_builtin": True,
+        "builtin_key": "claude_sonnet",
+        "sort_order": 1,
+    },
+    {
+        "name": "Claude Opus",
+        "provider": "claude",
+        "command_template": "claude --model claude-opus-4-5",
+        "instruction_file": "",
+        "is_builtin": True,
+        "builtin_key": "claude_opus",
+        "sort_order": 2,
+    },
+    {
+        "name": "Codex CLI",
+        "provider": "codex",
+        "command_template": "codex",
+        "instruction_file": "",
+        "is_builtin": True,
+        "builtin_key": "codex_cli",
+        "sort_order": 3,
+    },
+    {
+        "name": "Gemini CLI",
+        "provider": "gemini",
+        "command_template": "gemini",
+        "instruction_file": "",
+        "is_builtin": True,
+        "builtin_key": "gemini_cli",
+        "sort_order": 4,
+    },
+]
+
+
+def seed_builtin_agents() -> None:
+    """Seed built-in agent presets (Claude Sonnet, Claude Opus, Codex CLI, Gemini CLI).
+
+    Checks by builtin_key so re-runs are idempotent.  Custom agents are never
+    seeded here — those are user-created entries.
+    """
+    from app.models import AgentProfile  # local import to avoid circular deps
+
+    db = SessionLocal()
+    try:
+        for agent_data in BUILTIN_AGENTS:
+            existing = db.query(AgentProfile).filter(
+                AgentProfile.builtin_key == agent_data["builtin_key"]
+            ).first()
+            if not existing:
+                db.add(AgentProfile(**agent_data))
+        db.commit()
+    finally:
+        db.close()
+
+
 def init_db():
     """Create all tables defined on Base.metadata."""
     Base.metadata.create_all(bind=engine)
     seed_default_profiles()
+    seed_builtin_agents()
 
 

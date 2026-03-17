@@ -1,26 +1,39 @@
 # ChatMasala
 
-A minimal local orchestration tool for running CLI-based AI agents.
+A workspace-first multi-chat routing app for local CLI-based AI agents.
 
 ## What It Does
 
-ChatMasala lets you create Runs with a goal, select a workspace, and watch CLI agents work through that goal in a chat-style relay view — no manual copy-paste between agents.
+ChatMasala lets you open a workspace and arrange multiple chat nodes inside it. Each node runs independently with its own agent and conversation context. Nodes can route output to other nodes automatically, or you can manually import messages from one node into another.
 
-Agents are selected from saved AgentProfiles, each of which stores a CLI command and optional flags.
+The top workflow view and the lower chat panels are two synchronized views of the same graph — switching between them shows you the same state from different angles.
 
-## Workflow Presets
+## Workspaces And Nodes
 
-Two presets are available. No other workflows exist in this version.
+- A **workspace** is the top-level session. It holds a set of chat nodes and an optional filesystem path for CLI execution.
+- A **chat node** is a single chat conversation within a workspace. Each node has its own agent, transcript, and optional downstream route.
+- A **chat message** is one turn in a node's transcript. Messages can be typed by the user, returned by an agent, imported from another node, or delivered by automatic routing.
 
-- **single_agent** — one agent receives the goal and runs to completion
-- **builder_reviewer** — a builder agent works on the goal, a reviewer agent evaluates the output, and the loop continues until approval or max rounds
+## Agent Choices
 
-## User Flow
+Each node can use a different agent. Supported choices:
 
-1. Open the app at http://127.0.0.1:8000
-2. Go to Settings to create AgentProfiles (CLI command, name)
-3. Create a Run: enter a goal, select a workspace, choose a preset, assign profile(s)
-4. Start the Run and watch the chat-style relay view update via polling
+- **Claude Sonnet**
+- **Claude Opus**
+- **Codex CLI**
+- **Gemini CLI**
+- **Custom** — any CLI agent you configure in Settings
+
+## Routing And Import
+
+- **Automatic route** — when a node finishes, its output can be delivered automatically to one downstream node. Each node supports one downstream route in this pass.
+- **Manual import** — you can explicitly import the latest assistant message from any other node in the workspace into the current node.
+
+These two mechanisms are intentionally distinct. Automatic routing is a passive delivery. Manual import is a deliberate user action.
+
+## Two Views, One Graph
+
+The top of the workspace shows a workflow overview of all nodes and their connections. The bottom shows chat panels for each node. Both views reflect the same underlying state. Focusing a node in one view updates focus in the other.
 
 ## Tech
 
@@ -51,5 +64,5 @@ python -m pytest tests/ -v
 ## Implementation Reference
 
 - Active execution checklist: `docs/build-plan.md`
-- Full spec: `docs/mvp-build-spec.md`
+- Secondary/legacy spec: `docs/mvp-build-spec.md`
 - Archived prior design material: `docs/archive/2026-03-16/`
