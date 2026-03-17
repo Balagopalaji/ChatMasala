@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import Thread, Turn, UserNote
+from app.models import AgentProfile, Run, Turn, UserNote
 
 
 @pytest.fixture(scope="function")
@@ -34,56 +34,50 @@ def db_session():
 
 
 # ---------------------------------------------------------------------------
-# Thread tests
+# Run tests
 # ---------------------------------------------------------------------------
 
 
-def test_thread_create(db_session):
-    thread = Thread(
-        title="Test Thread",
-        task_text="Build a widget.",
+def test_run_create(db_session):
+    run = Run(
+        title="Test Run",
+        goal="Build a widget.",
         plan_text="1. Design\n2. Implement\n3. Test",
-        builder_command="claude --print",
-        reviewer_command="claude --print",
-        working_directory="/tmp/project",
+        workflow_type="single_agent",
+        workspace="/tmp/project",
         max_rounds=5,
     )
-    db_session.add(thread)
+    db_session.add(run)
     db_session.commit()
 
-    queried = db_session.query(Thread).filter_by(title="Test Thread").one()
+    queried = db_session.query(Run).filter_by(title="Test Run").one()
     assert queried.id is not None
-    assert queried.title == "Test Thread"
-    assert queried.task_text == "Build a widget."
+    assert queried.title == "Test Run"
+    assert queried.goal == "Build a widget."
     assert queried.plan_text == "1. Design\n2. Implement\n3. Test"
-    assert queried.builder_command == "claude --print"
-    assert queried.reviewer_command == "claude --print"
-    assert queried.working_directory == "/tmp/project"
+    assert queried.workspace == "/tmp/project"
     assert queried.status == "draft"
     assert queried.current_role is None
     assert queried.round_count == 0
     assert queried.max_rounds == 5
     assert queried.last_error is None
     assert queried.created_at is not None
-    assert queried.updated_at is not None
 
 
-def test_thread_default_status_and_rounds(db_session):
-    thread = Thread(
+def test_run_default_status_and_rounds(db_session):
+    run = Run(
         title="Defaults Test",
-        task_text="Task.",
+        goal="Task.",
         plan_text="Plan.",
-        builder_command="cmd",
-        reviewer_command="cmd",
     )
-    db_session.add(thread)
+    db_session.add(run)
     db_session.commit()
 
-    queried = db_session.query(Thread).filter_by(title="Defaults Test").one()
+    queried = db_session.query(Run).filter_by(title="Defaults Test").one()
     assert queried.status == "draft"
     assert queried.round_count == 0
     assert queried.max_rounds == 3
-    assert queried.working_directory is None
+    assert queried.workspace is None
 
 
 # ---------------------------------------------------------------------------
@@ -92,18 +86,16 @@ def test_thread_default_status_and_rounds(db_session):
 
 
 def test_turn_create(db_session):
-    thread = Thread(
-        title="Thread for Turn",
-        task_text="Task.",
+    run = Run(
+        title="Run for Turn",
+        goal="Task.",
         plan_text="Plan.",
-        builder_command="cmd",
-        reviewer_command="cmd",
     )
-    db_session.add(thread)
-    db_session.flush()  # get thread.id without full commit
+    db_session.add(run)
+    db_session.flush()  # get run.id without full commit
 
     turn = Turn(
-        thread_id=thread.id,
+        run_id=run.id,
         role="builder",
         sequence_number=1,
         prompt_text="You are the builder. Please do the task.",
@@ -111,9 +103,9 @@ def test_turn_create(db_session):
     db_session.add(turn)
     db_session.commit()
 
-    queried_turn = db_session.query(Turn).filter_by(thread_id=thread.id).one()
+    queried_turn = db_session.query(Turn).filter_by(run_id=run.id).one()
     assert queried_turn.id is not None
-    assert queried_turn.thread_id == thread.id
+    assert queried_turn.run_id == run.id
     assert queried_turn.role == "builder"
     assert queried_turn.sequence_number == 1
     assert queried_turn.prompt_text == "You are the builder. Please do the task."
@@ -124,13 +116,13 @@ def test_turn_create(db_session):
     assert queried_turn.ended_at is None
 
     # Verify FK relationship
-    assert queried_turn.thread.title == "Thread for Turn"
+    assert queried_turn.run.title == "Run for Turn"
 
 
 def test_turn_fk_enforced(db_session):
-    """Creating a Turn with a non-existent thread_id should raise an IntegrityError."""
+    """Creating a Turn with a non-existent run_id should raise an IntegrityError."""
     turn = Turn(
-        thread_id=99999,
+        run_id=99999,
         role="builder",
         sequence_number=1,
         prompt_text="prompt",
@@ -141,28 +133,26 @@ def test_turn_fk_enforced(db_session):
 
 
 def test_multiple_turns_sequence(db_session):
-    thread = Thread(
-        title="Multi-turn Thread",
-        task_text="Task.",
+    run = Run(
+        title="Multi-turn Run",
+        goal="Task.",
         plan_text="Plan.",
-        builder_command="cmd",
-        reviewer_command="cmd",
     )
-    db_session.add(thread)
+    db_session.add(run)
     db_session.flush()
 
     turn1 = Turn(
-        thread_id=thread.id, role="builder", sequence_number=1, prompt_text="p1"
+        run_id=run.id, role="builder", sequence_number=1, prompt_text="p1"
     )
     turn2 = Turn(
-        thread_id=thread.id, role="reviewer", sequence_number=2, prompt_text="p2"
+        run_id=run.id, role="reviewer", sequence_number=2, prompt_text="p2"
     )
     db_session.add_all([turn1, turn2])
     db_session.commit()
 
     turns = (
         db_session.query(Turn)
-        .filter_by(thread_id=thread.id)
+        .filter_by(run_id=run.id)
         .order_by(Turn.sequence_number)
         .all()
     )
@@ -177,54 +167,81 @@ def test_multiple_turns_sequence(db_session):
 
 
 def test_usernote_create(db_session):
-    thread = Thread(
-        title="Thread for Note",
-        task_text="Task.",
+    run = Run(
+        title="Run for Note",
+        goal="Task.",
         plan_text="Plan.",
-        builder_command="cmd",
-        reviewer_command="cmd",
     )
-    db_session.add(thread)
+    db_session.add(run)
     db_session.flush()
 
     note = UserNote(
-        thread_id=thread.id,
+        run_id=run.id,
         note_text="Please pay attention to error handling.",
     )
     db_session.add(note)
     db_session.commit()
 
-    queried_note = db_session.query(UserNote).filter_by(thread_id=thread.id).one()
+    queried_note = db_session.query(UserNote).filter_by(run_id=run.id).one()
     assert queried_note.id is not None
-    assert queried_note.thread_id == thread.id
+    assert queried_note.run_id == run.id
     assert queried_note.note_text == "Please pay attention to error handling."
     assert queried_note.created_at is not None
 
     # Verify FK relationship
-    assert queried_note.thread.title == "Thread for Note"
+    assert queried_note.run.title == "Run for Note"
 
 
-def test_thread_relationships(db_session):
-    """Verify that turns and user_notes appear in thread.turns / thread.user_notes."""
-    thread = Thread(
-        title="Rel Thread",
-        task_text="Task.",
+def test_run_relationships(db_session):
+    """Verify that turns and user_notes appear in run.turns / run.user_notes."""
+    run = Run(
+        title="Rel Run",
+        goal="Task.",
         plan_text="Plan.",
-        builder_command="cmd",
-        reviewer_command="cmd",
     )
-    db_session.add(thread)
+    db_session.add(run)
     db_session.flush()
 
     turn = Turn(
-        thread_id=thread.id, role="builder", sequence_number=1, prompt_text="p"
+        run_id=run.id, role="builder", sequence_number=1, prompt_text="p"
     )
-    note = UserNote(thread_id=thread.id, note_text="n")
+    note = UserNote(run_id=run.id, note_text="n")
     db_session.add_all([turn, note])
     db_session.commit()
 
-    db_session.expire(thread)  # reload from DB
-    assert len(thread.turns) == 1
-    assert len(thread.user_notes) == 1
-    assert thread.turns[0].role == "builder"
-    assert thread.user_notes[0].note_text == "n"
+    db_session.expire(run)  # reload from DB
+    assert len(run.turns) == 1
+    assert len(run.user_notes) == 1
+    assert run.turns[0].role == "builder"
+    assert run.user_notes[0].note_text == "n"
+
+
+# ---------------------------------------------------------------------------
+# AgentProfile tests
+# ---------------------------------------------------------------------------
+
+
+def test_agent_profile_creation(db_session):
+    profile = AgentProfile(
+        name="Test Builder",
+        provider="claude",
+        command_template="claude --dangerously-skip-permissions",
+        instruction_file="profiles/agents/builder.md",
+    )
+    db_session.add(profile)
+    db_session.commit()
+    db_session.refresh(profile)
+    assert profile.id is not None
+    assert profile.name == "Test Builder"
+    assert profile.provider == "claude"
+
+
+def test_agent_profile_name_unique(db_session):
+    p1 = AgentProfile(name="Unique", provider="claude", command_template="cmd", instruction_file="f.md")
+    p2 = AgentProfile(name="Unique", provider="claude", command_template="cmd2", instruction_file="f2.md")
+    db_session.add(p1)
+    db_session.commit()
+    db_session.add(p2)
+    import pytest
+    with pytest.raises(Exception):
+        db_session.commit()

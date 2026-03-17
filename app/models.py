@@ -1,49 +1,44 @@
-"""SQLAlchemy ORM models for Thread, Turn, UserNote, and Settings."""
+"""SQLAlchemy ORM models for Run, Turn, UserNote, Settings, and AgentProfile."""
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 
 
-class Thread(Base):
-    __tablename__ = "threads"
+class Run(Base):
+    __tablename__ = "runs"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    title: Mapped[str] = mapped_column(String, nullable=False)
-    task_text: Mapped[str] = mapped_column(Text, nullable=False)
-    plan_text: Mapped[str] = mapped_column(Text, nullable=False)
-    builder_command: Mapped[str] = mapped_column(String, nullable=False)
-    reviewer_command: Mapped[str] = mapped_column(String, nullable=False)
-    working_directory: Mapped[str | None] = mapped_column(String, nullable=True)
-    status: Mapped[str] = mapped_column(String, nullable=False, default="draft")
-    current_role: Mapped[str | None] = mapped_column(String, nullable=True)
-    round_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    max_rounds: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
-    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
-    )
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    goal = Column(Text, nullable=False)
+    plan_text = Column(Text, nullable=True)
+    workflow_type = Column(String, nullable=False, default="single_agent")
+    primary_agent_profile_id = Column(Integer, ForeignKey("agent_profiles.id"), nullable=True)
+    builder_agent_profile_id = Column(Integer, ForeignKey("agent_profiles.id"), nullable=True)
+    reviewer_agent_profile_id = Column(Integer, ForeignKey("agent_profiles.id"), nullable=True)
+    workspace = Column(String, nullable=True)
+    loop_enabled = Column(Boolean, default=False)
+    status = Column(String, nullable=False, default="draft")
+    current_role = Column(String, nullable=True)
+    round_count = Column(Integer, default=0)
+    max_rounds = Column(Integer, default=3)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
-    turns: Mapped[list["Turn"]] = relationship(
-        "Turn", back_populates="thread", cascade="all, delete-orphan"
-    )
-    user_notes: Mapped[list["UserNote"]] = relationship(
-        "UserNote", back_populates="thread", cascade="all, delete-orphan"
-    )
+    turns = relationship("Turn", back_populates="run", cascade="all, delete-orphan")
+    user_notes = relationship("UserNote", back_populates="run", cascade="all, delete-orphan")
 
 
 class Turn(Base):
     __tablename__ = "turns"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    thread_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("threads.id"), nullable=False
+    run_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("runs.id"), nullable=False
     )
     role: Mapped[str] = mapped_column(String, nullable=False)
     sequence_number: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -54,15 +49,15 @@ class Turn(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    thread: Mapped["Thread"] = relationship("Thread", back_populates="turns")
+    run: Mapped["Run"] = relationship("Run", back_populates="turns")
 
 
 class UserNote(Base):
     __tablename__ = "user_notes"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    thread_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("threads.id"), nullable=False
+    run_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("runs.id"), nullable=False
     )
     note_text: Mapped[str] = mapped_column(Text, nullable=False)
     applied: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -70,7 +65,7 @@ class UserNote(Base):
         DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
     )
 
-    thread: Mapped["Thread"] = relationship("Thread", back_populates="user_notes")
+    run: Mapped["Run"] = relationship("Run", back_populates="user_notes")
 
 
 class Settings(Base):
@@ -78,3 +73,15 @@ class Settings(Base):
 
     key: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class AgentProfile(Base):
+    __tablename__ = "agent_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, unique=True)
+    provider = Column(String, nullable=False, default="claude")
+    command_template = Column(String, nullable=False)
+    instruction_file = Column(String, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

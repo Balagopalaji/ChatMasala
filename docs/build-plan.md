@@ -60,13 +60,13 @@ If a part of the plan exists mainly for future-proofing rather than the next vis
 
 ## 5. Pass Status Overview
 
-- [ ] Phase 0 — Scope Lock For The Redesign Pass
-- [ ] Phase 1 — Agent Profiles Foundation
-- [ ] Phase 2 — Clean-Break Run Schema And Naming
-- [ ] Phase 3 — Run Creation UX Redesign
-- [ ] Phase 4 — Orchestrator Update For Two Presets
-- [ ] Phase 5 — Run Detail Relay View Redesign
-- [ ] Phase 6 — Docs And Regression Hardening
+- [x] Phase 0 — Scope Lock For The Redesign Pass
+- [x] Phase 1 — Agent Profiles Foundation
+- [x] Phase 2 — Clean-Break Run Schema And Naming
+- [x] Phase 3 — Run Creation UX Redesign
+- [x] Phase 4 — Orchestrator Update For Two Presets
+- [x] Phase 5 — Run Detail Relay View Redesign
+- [x] Phase 6 — Docs And Regression Hardening
 
 ---
 
@@ -108,24 +108,24 @@ If a part of the plan exists mainly for future-proofing rather than the next vis
 - Avoid inventing a generalized workflow engine while trying to support two presets.
 
 ### Builder checklist
-- [ ] Confirm the redesign goal in one sentence.
-- [ ] Confirm the pass is a clean-break dev prototype change, not a backward-compatible migration effort.
-- [ ] Confirm the only workflow presets in scope are `Single Agent` and `Builder -> Reviewer`.
-- [ ] Confirm polling remains sufficient.
-- [ ] Confirm raw per-run command entry is removed from the run creation UX.
-- [ ] Confirm no YAML engines, planner workflows, JSON APIs, MCP, browser extensions, inbox models, route-to actions, hosted routing, PTY embedding, or streaming transports will be added.
-- [ ] Add a minimal active-doc alignment update so `README.md`, `AGENTS.md`, and `docs/mvp-build-spec.md` no longer contradict this redesign pass.
+- [x] Confirm the redesign goal in one sentence.
+- [x] Confirm the pass is a clean-break dev prototype change, not a backward-compatible migration effort.
+- [x] Confirm the only workflow presets in scope are `Single Agent` and `Builder -> Reviewer`.
+- [x] Confirm polling remains sufficient.
+- [x] Confirm raw per-run command entry is removed from the run creation UX.
+- [x] Confirm no YAML engines, planner workflows, JSON APIs, MCP, browser extensions, inbox models, route-to actions, hosted routing, PTY embedding, or streaming transports will be added.
+- [x] Add a minimal active-doc alignment update so `README.md`, `AGENTS.md`, and `docs/mvp-build-spec.md` no longer contradict this redesign pass.
 
 ### Verification checklist
-- [ ] All builders are working from the same narrow scope.
-- [ ] No persistence future-proofing work is planned beyond the next visible UX.
-- [ ] The redesign remains CLI-first under the hood.
-- [ ] Active docs point builders to this redesign checklist while the broader rewrite is still in progress.
+- [x] All builders are working from the same narrow scope.
+- [x] No persistence future-proofing work is planned beyond the next visible UX.
+- [x] The redesign remains CLI-first under the hood.
+- [x] Active docs point builders to this redesign checklist while the broader rewrite is still in progress.
 
 ### Exit checklist
-- [ ] Scope is locked.
-- [ ] Simplifying rules are accepted.
-- [ ] Builders can begin implementation without adding migration/framework work.
+- [x] Scope is locked.
+- [x] Simplifying rules are accepted.
+- [x] Builders can begin implementation without adding migration/framework work.
 
 ---
 
@@ -194,23 +194,23 @@ Keep scope narrow:
 - Settings page should stop teaching users to think in raw commands per run.
 
 ### Builder checklist
-- [ ] Add `AgentProfile` to `app/models.py`.
-- [ ] Add any minimal schema/form helpers needed for profile create/edit validation.
-- [ ] Add shipped instruction markdown files under `profiles/agents/`.
-- [ ] Seed default profiles for single-agent, builder, and reviewer usage.
-- [ ] Replace the old global command settings UX with profile management UX.
-- [ ] Keep profile management limited to create/edit/list.
+- [x] Add `AgentProfile` to `app/models.py`.
+- [x] Add any minimal schema/form helpers needed for profile create/edit validation.
+- [x] Add shipped instruction markdown files under `profiles/agents/`.
+- [x] Seed default profiles for single-agent, builder, and reviewer usage.
+- [x] Replace the old global command settings UX with profile management UX.
+- [x] Keep profile management limited to create/edit/list.
 
 ### Verification checklist
-- [ ] A fresh local DB includes default agent profiles.
-- [ ] `/settings` shows profiles instead of global builder/reviewer command strings.
-- [ ] A profile cannot be saved with a missing instruction file.
-- [ ] No per-run raw command UX remains on the settings page.
+- [x] A fresh local DB includes default agent profiles.
+- [x] `/settings` shows profiles instead of global builder/reviewer command strings.
+- [x] A profile cannot be saved with a missing instruction file.
+- [x] No per-run raw command UX remains on the settings page.
 
 ### Exit checklist
-- [ ] Agent profiles exist as first-class records.
-- [ ] Default instruction files are shipped.
-- [ ] Settings page now manages profiles.
+- [x] Agent profiles exist as first-class records.
+- [x] Default instruction files are shipped.
+- [x] Settings page now manages profiles.
 
 ---
 
@@ -286,24 +286,24 @@ Implementation expectation:
 - Avoid adding long-lived `/threads/*` aliases unless absolutely necessary for bootstrapping the branch.
 
 ### Builder checklist
-- [ ] Rename the top-level ORM model from `Thread` to `Run`.
-- [ ] Rename `task_text` to `goal`.
-- [ ] Rename `working_directory` to `workspace`.
-- [ ] Replace direct command fields on the top-level model with profile ID fields.
-- [ ] Rename `thread_id` FKs to `run_id` in related models.
-- [ ] Update route/module/template naming to run terminology.
-- [ ] Remove active code paths that still depend on old global command settings.
+- [x] Rename the top-level ORM model from `Thread` to `Run`.
+- [x] Rename `task_text` to `goal`.
+- [x] Rename `working_directory` to `workspace`.
+- [x] Replace direct command fields on the top-level model with profile ID fields.
+- [x] Rename `thread_id` FKs to `run_id` in related models.
+- [x] Update route/module/template naming to run terminology.
+- [x] Remove active code paths that still depend on old global command settings.
 
 ### Verification checklist
-- [ ] The app boots against a fresh clean DB.
-- [ ] No selected implementation file still uses `Thread` as the active product concept.
-- [ ] No selected implementation file still uses `task_text` or `working_directory` as the active user-facing field names.
-- [ ] Route tests can be updated against `/runs/*` without compatibility hacks.
+- [x] The app boots against a fresh clean DB.
+- [x] No selected implementation file still uses `Thread` as the active product concept.
+- [x] No selected implementation file still uses `task_text` or `working_directory` as the active user-facing field names.
+- [x] Route tests can be updated against `/runs/*` without compatibility hacks.
 
 ### Exit checklist
-- [ ] `Run` is the canonical domain model.
-- [ ] Clean DB recreation works.
-- [ ] Old thread/raw-command persistence assumptions are removed.
+- [x] `Run` is the canonical domain model.
+- [x] Clean DB recreation works.
+- [x] Old thread/raw-command persistence assumptions are removed.
 
 ---
 
@@ -364,26 +364,26 @@ Recommended implementation choices:
 - Make sure title generation is deterministic and editable later, rather than turning title into a large design problem.
 
 ### Builder checklist
-- [ ] Make `goal` the primary run creation field.
-- [ ] Make `Plan / Constraints` secondary and optional.
-- [ ] Remove the required create-time title field from the main UX.
-- [ ] Auto-generate the initial title from the goal.
-- [ ] Add the two-option workflow preset dropdown.
-- [ ] Add profile dropdowns populated from `AgentProfile`.
-- [ ] Add workspace picking with recent values plus manual path entry.
-- [ ] Show loop toggle and max rounds only for `Builder -> Reviewer`.
-- [ ] Remove raw command entry from the new run form.
+- [x] Make `goal` the primary run creation field.
+- [x] Make `Plan / Constraints` secondary and optional.
+- [x] Remove the required create-time title field from the main UX.
+- [x] Auto-generate the initial title from the goal.
+- [x] Add the two-option workflow preset dropdown.
+- [x] Add profile dropdowns populated from `AgentProfile`.
+- [x] Add workspace picking with recent values plus manual path entry.
+- [x] Show loop toggle and max rounds only for `Builder -> Reviewer`.
+- [x] Remove raw command entry from the new run form.
 
 ### Verification checklist
-- [ ] A user can create a single-agent run without seeing reviewer-specific controls.
-- [ ] A user can create a builder-reviewer run with builder and reviewer profile selectors.
-- [ ] A user can enter a workspace manually or choose a recent one.
-- [ ] The generated title is reasonable and the run still persists if the user never typed a title.
+- [x] A user can create a single-agent run without seeing reviewer-specific controls.
+- [x] A user can create a builder-reviewer run with builder and reviewer profile selectors.
+- [x] A user can enter a workspace manually or choose a recent one.
+- [x] The generated title is reasonable and the run still persists if the user never typed a title.
 
 ### Exit checklist
-- [ ] Run creation is profile-based and workflow-first.
-- [ ] Goal is primary in the UX.
-- [ ] Workspace and loop controls behave as required.
+- [x] Run creation is profile-based and workflow-first.
+- [x] Goal is primary in the UX.
+- [x] Workspace and loop controls behave as required.
 
 ---
 
@@ -447,27 +447,27 @@ System/routing cards:
 - Avoid persisting extra routing artifacts unless the UI proves it is necessary.
 
 ### Builder checklist
-- [ ] Update the orchestrator to load selected profile records for each run.
-- [ ] Use profile `command_template` instead of raw per-run commands.
-- [ ] Load instruction text from `instruction_file`.
-- [ ] Add `single_agent` execution flow.
-- [ ] Keep `builder_reviewer` deterministic and simple.
-- [ ] Respect `loop_enabled` and `max_rounds` only for loop-capable workflows.
-- [ ] Rename runner usage from `working_directory` to `workspace`.
-- [ ] Fix background task/session handling so background work opens its own DB session.
-- [ ] Keep routing/event persistence out unless proven necessary.
+- [x] Update the orchestrator to load selected profile records for each run.
+- [x] Use profile `command_template` instead of raw per-run commands.
+- [x] Load instruction text from `instruction_file`.
+- [x] Add `single_agent` execution flow.
+- [x] Keep `builder_reviewer` deterministic and simple.
+- [x] Respect `loop_enabled` and `max_rounds` only for loop-capable workflows.
+- [x] Rename runner usage from `working_directory` to `workspace`.
+- [x] Fix background task/session handling so background work opens its own DB session.
+- [x] Keep routing/event persistence out unless proven necessary.
 
 ### Verification checklist
-- [ ] A single-agent run can start and complete through the existing CLI seam.
-- [ ] A builder-reviewer run still routes deterministically.
-- [ ] Disabling loops causes reviewer change requests to stop for user attention.
-- [ ] Max rounds still cap builder-reviewer cycling.
-- [ ] Background tasks no longer rely on request-scoped DB sessions.
+- [x] A single-agent run can start and complete through the existing CLI seam.
+- [x] A builder-reviewer run still routes deterministically.
+- [x] Disabling loops causes reviewer change requests to stop for user attention.
+- [x] Max rounds still cap builder-reviewer cycling.
+- [x] Background tasks no longer rely on request-scoped DB sessions.
 
 ### Exit checklist
-- [ ] Both supported presets run end to end.
-- [ ] Profile selection drives command execution.
-- [ ] Orchestrator complexity remains bounded.
+- [x] Both supported presets run end to end.
+- [x] Profile selection drives command execution.
+- [x] Orchestrator complexity remains bounded.
 
 ---
 
@@ -516,25 +516,25 @@ Recommended approach:
 - Do not widen this into a full activity/event timeline subsystem.
 
 ### Builder checklist
-- [ ] Rename the detail view from thread to run terminology.
-- [ ] Keep polling via meta refresh for active states.
-- [ ] Render one lane for `Single Agent`.
-- [ ] Render two lanes for `Builder -> Reviewer`.
-- [ ] Show routing/system cards in the transcript UI.
-- [ ] Keep raw prompt/output details collapsed by default.
-- [ ] Add editable title support on the detail page.
-- [ ] Show workflow, workspace, and selected profile metadata.
+- [x] Rename the detail view from thread to run terminology.
+- [x] Keep polling via meta refresh for active states.
+- [x] Render one lane for `Single Agent`.
+- [x] Render two lanes for `Builder -> Reviewer`.
+- [x] Show routing/system cards in the transcript UI.
+- [x] Keep raw prompt/output details collapsed by default.
+- [x] Add editable title support on the detail page.
+- [x] Show workflow, workspace, and selected profile metadata.
 
 ### Verification checklist
-- [ ] Single-agent runs are easy to understand in one lane.
-- [ ] Builder-reviewer runs remain easy to scan in two lanes.
-- [ ] The detail view no longer feels like raw CRUD over backend fields.
-- [ ] Polling still keeps the active relay view usable without streaming.
+- [x] Single-agent runs are easy to understand in one lane.
+- [x] Builder-reviewer runs remain easy to scan in two lanes.
+- [x] The detail view no longer feels like raw CRUD over backend fields.
+- [x] Polling still keeps the active relay view usable without streaming.
 
 ### Exit checklist
-- [ ] Run detail matches the redesign target.
-- [ ] Chat-style relay view is in place.
-- [ ] No streaming/event-system scope creep was introduced.
+- [x] Run detail matches the redesign target.
+- [x] Chat-style relay view is in place.
+- [x] No streaming/event-system scope creep was introduced.
 
 ---
 
@@ -586,23 +586,23 @@ Update active docs to reflect:
 - This phase is not optional; documentation drift would create immediate confusion for later passes.
 
 ### Builder checklist
-- [ ] Rewrite tests to match the redesigned product model.
-- [ ] Remove old thread/raw-command assumptions from active tests.
-- [ ] Update `README.md` to describe the redesigned product.
-- [ ] Update `AGENTS.md` to describe the new active boundary.
-- [ ] Update `docs/mvp-build-spec.md` to reflect the redesign.
-- [ ] Remove stale comments and placeholder language that still describe the old MVP.
+- [x] Rewrite tests to match the redesigned product model.
+- [x] Remove old thread/raw-command assumptions from active tests.
+- [x] Update `README.md` to describe the redesigned product.
+- [x] Update `AGENTS.md` to describe the new active boundary.
+- [x] Update `docs/mvp-build-spec.md` to reflect the redesign.
+- [x] Remove stale comments and placeholder language that still describe the old MVP.
 
 ### Verification checklist
-- [ ] Active docs match shipped behavior.
-- [ ] Tests cover the two supported workflows.
-- [ ] No selected file still describes raw per-run command entry as the main UX.
-- [ ] No active doc points builders toward archived concepts.
+- [x] Active docs match shipped behavior.
+- [x] Tests cover the two supported workflows.
+- [x] No selected file still describes raw per-run command entry as the main UX.
+- [x] No active doc points builders toward archived concepts.
 
 ### Exit checklist
-- [ ] Docs and tests match the redesign.
-- [ ] The pass is safe for the next builder to continue from.
-- [ ] The repo no longer presents the old MVP as current truth.
+- [x] Docs and tests match the redesign.
+- [x] The pass is safe for the next builder to continue from.
+- [x] The repo no longer presents the old MVP as current truth.
 
 ---
 

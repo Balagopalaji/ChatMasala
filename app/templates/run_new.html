@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block title %}New Run{% endblock %}
+
+{% block sidebar_runs %}
+{% endblock %}
+
+{% block content %}
+<div class="form-page">
+  <div class="form-page-header">
+    <h1>New Run</h1>
+    <a href="/" class="btn btn-ghost">&larr; Back</a>
+  </div>
+
+  <form method="post" action="/runs" class="run-form">
+
+    {% if errors %}
+    <div class="alert alert-error">
+      <ul style="margin:0;padding-left:1.2rem;">
+        {% for error in errors %}
+        <li>{{ error }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <!-- Goal (primary) -->
+    <div class="form-group form-group-primary">
+      <label for="goal">Goal <span class="required">*</span></label>
+      <textarea id="goal" name="goal" required rows="4" placeholder="Describe what you want the agent to accomplish...">{{ form_data.goal if form_data else '' }}</textarea>
+    </div>
+
+    <!-- Plan / Constraints (optional) -->
+    <div class="form-group">
+      <label for="plan_text">Plan / Constraints <span class="label-hint optional">(optional)</span></label>
+      <textarea id="plan_text" name="plan_text" rows="3" placeholder="Any constraints, acceptance criteria, or approach notes...">{{ form_data.plan_text if form_data else '' }}</textarea>
+    </div>
+
+    <!-- Workflow preset -->
+    <div class="form-group">
+      <label for="workflow_type">Workflow</label>
+      <select id="workflow_type" name="workflow_type" onchange="updateWorkflowUI()">
+        <option value="single_agent" {{ 'selected' if (form_data and form_data.workflow_type == 'single_agent') else '' }}>Single Agent</option>
+        <option value="builder_reviewer" {{ 'selected' if (form_data and form_data.workflow_type == 'builder_reviewer') else '' }}>Builder &#8594; Reviewer</option>
+      </select>
+    </div>
+
+    <!-- Single agent profile -->
+    <div id="single-agent-profiles" class="form-group">
+      <label for="primary_agent_profile_id">Agent Profile</label>
+      <select id="primary_agent_profile_id" name="primary_agent_profile_id">
+        <option value="">&#8212; select profile &#8212;</option>
+        {% for profile in profiles %}
+        <option value="{{ profile.id }}">{{ profile.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Builder/Reviewer profiles -->
+    <div id="builder-reviewer-profiles" class="form-group-pair" style="display:none">
+      <div class="form-group">
+        <label for="builder_agent_profile_id">Builder Profile</label>
+        <select id="builder_agent_profile_id" name="builder_agent_profile_id">
+          <option value="">&#8212; select profile &#8212;</option>
+          {% for profile in profiles %}
+          <option value="{{ profile.id }}">{{ profile.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="reviewer_agent_profile_id">Reviewer Profile</label>
+        <select id="reviewer_agent_profile_id" name="reviewer_agent_profile_id">
+          <option value="">&#8212; select profile &#8212;</option>
+          {% for profile in profiles %}
+          <option value="{{ profile.id }}">{{ profile.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <!-- Workspace -->
+    <div class="form-group">
+      <label for="workspace">Workspace</label>
+      <input type="text" id="workspace" name="workspace" list="workspace-suggestions" placeholder="e.g. /Users/you/myproject" value="{{ form_data.workspace if form_data else '' }}">
+      <datalist id="workspace-suggestions">
+        {% for ws in recent_workspaces %}
+        <option value="{{ ws }}">{{ ws }}</option>
+        {% endfor %}
+      </datalist>
+    </div>
+
+    <!-- Loop controls (builder_reviewer only) -->
+    <div id="loop-controls" style="display:none">
+      <div class="form-group form-group-inline">
+        <label>
+          <input type="checkbox" id="loop_enabled" name="loop_enabled" value="true" onchange="updateLoopUI()">
+          Enable loop (reviewer can send back to builder)
+        </label>
+      </div>
+      <div id="max-rounds-group" class="form-group" style="display:none">
+        <label for="max_rounds">Max rounds</label>
+        <input type="number" id="max_rounds" name="max_rounds" value="{{ form_data.max_rounds if form_data else 3 }}" min="1" max="20">
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary btn-large">Create Run &rarr;</button>
+      <a href="/" class="btn btn-secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+
+<script>
+function updateWorkflowUI() {
+  var workflow = document.getElementById('workflow_type').value;
+  var singleProfiles = document.getElementById('single-agent-profiles');
+  var builderReviewerProfiles = document.getElementById('builder-reviewer-profiles');
+  var loopControls = document.getElementById('loop-controls');
+
+  if (workflow === 'builder_reviewer') {
+    singleProfiles.style.display = 'none';
+    builderReviewerProfiles.style.display = '';
+    loopControls.style.display = '';
+  } else {
+    singleProfiles.style.display = '';
+    builderReviewerProfiles.style.display = 'none';
+    loopControls.style.display = 'none';
+  }
+}
+
+function updateLoopUI() {
+  var loopEnabled = document.getElementById('loop_enabled').checked;
+  document.getElementById('max-rounds-group').style.display = loopEnabled ? '' : 'none';
+}
+</script>
+{% endblock %}

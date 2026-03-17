@@ -9,9 +9,9 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.agents.cli_runner import run_agent
-from app.models import Thread, Turn, UserNote
+from app.models import AgentProfile, Run, Turn, UserNote
 from app.parser import parse_builder_output, parse_reviewer_output
-from app.prompts import build_builder_prompt, build_reviewer_prompt
+from app.prompts import build_builder_prompt, build_reviewer_prompt, build_single_agent_prompt
 
 
 # ---------------------------------------------------------------------------
@@ -19,24 +19,24 @@ from app.prompts import build_builder_prompt, build_reviewer_prompt
 # ---------------------------------------------------------------------------
 
 
-def get_next_sequence_number(thread_id: int, db: Session) -> int:
-    """Return the next sequence number for turns in the given thread."""
+def get_next_sequence_number(run_id: int, db: Session) -> int:
+    """Return the next sequence number for turns in the given run."""
     max_seq = db.query(func.max(Turn.sequence_number)).filter(
-        Turn.thread_id == thread_id
+        Turn.run_id == run_id
     ).scalar()
     if max_seq is None:
         return 1
     return max_seq + 1
 
 
-def get_latest_user_note(thread_id: int, db: Session) -> Optional[str]:
+def get_latest_user_note(run_id: int, db: Session) -> Optional[str]:
     """Return the note_text of the most recently created unapplied UserNote, or None.
 
     Marks the note as applied so it is not re-injected on future turns.
     """
     note = (
         db.query(UserNote)
-        .filter(UserNote.thread_id == thread_id, UserNote.applied == False)
+        .filter(UserNote.run_id == run_id, UserNote.applied == False)
         .order_by(UserNote.created_at.desc())
         .first()
     )
@@ -47,20 +47,138 @@ def get_latest_user_note(thread_id: int, db: Session) -> Optional[str]:
     return None
 
 
+def _load_profile(db: Session, profile_id) -> Optional[AgentProfile]:
+    """Load an AgentProfile by ID. Returns None if not found."""
+    if not profile_id:
+        return None
+    return db.query(AgentProfile).filter(AgentProfile.id == profile_id).first()
+
+
+def _get_command(profile: Optional[AgentProfile]) -> str:
+    """Get the command template from a profile, or empty string."""
+    if not profile:
+        return ""
+    return profile.command_template or ""
+
+
+def _get_instruction_text(profile: Optional[AgentProfile]) -> str:
+    """Read instruction file content from a profile. Returns empty string if unavailable."""
+    if not profile or not profile.instruction_file:
+        return ""
+    try:
+        with open(profile.instruction_file, "r") as f:
+            return f.read()
+    except (IOError, OSError):
+        return ""
+
+
+def _get_builder_command(run: Run, db: Session) -> str:
+    """Resolve the builder command from the run's agent profile or return empty string."""
+    profile = _load_profile(db, run.builder_agent_profile_id)
+    if profile:
+        return _get_command(profile)
+    profile = _load_profile(db, run.primary_agent_profile_id)
+    if profile:
+        return _get_command(profile)
+    return ""
+
+
+def _get_reviewer_command(run: Run, db: Session) -> str:
+    """Resolve the reviewer command from the run's agent profile or return empty string."""
+    profile = _load_profile(db, run.reviewer_agent_profile_id)
+    if profile:
+        return _get_command(profile)
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # Core turn runners
 # ---------------------------------------------------------------------------
 
 
-def run_builder_turn(thread: Thread, db: Session) -> None:
+def run_single_agent_turn(run_id: int, db: Session) -> None:
+    """Execute one single-agent turn."""
+    run = db.query(Run).filter(Run.id == run_id).first()
+    if not run:
+        return
+
+    profile = _load_profile(db, run.primary_agent_profile_id)
+    command = _get_command(profile)
+    instruction_text = _get_instruction_text(profile)
+
+    if not command:
+        run.status = "failed"
+        run.last_error = "No agent profile command configured."
+        db.commit()
+        return
+
+    run.status = "running"
+    run.current_role = "agent"
+    db.commit()
+
+    seq = get_next_sequence_number(run_id, db)
+    prompt = build_single_agent_prompt(
+        goal=run.goal,
+        plan_text=run.plan_text,
+        instruction_text=instruction_text,
+    )
+
+    turn = Turn(
+        run_id=run_id,
+        role="agent",
+        sequence_number=seq,
+        prompt_text=prompt,
+        status="running",
+        started_at=datetime.now(timezone.utc),
+    )
+    db.add(turn)
+    db.commit()
+    db.refresh(turn)
+
+    result = run_agent(command=command, prompt=prompt, working_directory=run.workspace)
+
+    turn.raw_output_text = result.stdout
+    turn.ended_at = datetime.now(timezone.utc)
+
+    if result.timed_out or result.error:
+        turn.status = "failed"
+        run.status = "failed"
+        run.last_error = result.error or "Agent timed out."
+        db.commit()
+        return
+
+    if result.exit_code != 0:
+        turn.status = "failed"
+        run.status = "failed"
+        run.last_error = f"Agent exit code {result.exit_code}."
+        db.commit()
+        return
+
+    parsed = parse_builder_output(result.stdout)
+    if not parsed.success:
+        turn.status = "done"
+        run.status = "waiting_for_user"
+        run.last_error = "Agent output could not be parsed. Check the structured output format."
+        db.commit()
+        return
+
+    turn.parsed_json = json.dumps(dataclasses.asdict(parsed.data))
+    turn.status = "done"
+    run.status = "done"
+    run.last_error = None
+    run.current_role = None
+    db.commit()
+
+
+def run_builder_turn(run: Run, db: Session) -> None:
     """Execute one builder turn and route based on the result."""
-    user_note = get_latest_user_note(thread.id, db)
+    user_note = get_latest_user_note(run.id, db)
 
     # Get previous reviewer feedback (last succeeded reviewer turn)
     reviewer_turn = (
         db.query(Turn)
         .filter(
-            Turn.thread_id == thread.id,
+            Turn.run_id == run.id,
             Turn.role == "reviewer",
             Turn.status == "succeeded",
         )
@@ -71,13 +189,20 @@ def run_builder_turn(thread: Thread, db: Session) -> None:
         reviewer_turn.raw_output_text if reviewer_turn else None
     )
 
+    builder_profile = _load_profile(db, run.builder_agent_profile_id)
+    builder_instruction = _get_instruction_text(builder_profile)
+
     prompt = build_builder_prompt(
-        thread.task_text, thread.plan_text, reviewer_feedback, user_note
+        goal=run.goal,
+        plan=run.plan_text or "",
+        reviewer_feedback=reviewer_feedback,
+        user_note=user_note,
+        instruction_text=builder_instruction,
     )
 
-    seq = get_next_sequence_number(thread.id, db)
+    seq = get_next_sequence_number(run.id, db)
     turn = Turn(
-        thread_id=thread.id,
+        run_id=run.id,
         role="builder",
         sequence_number=seq,
         prompt_text=prompt,
@@ -87,19 +212,20 @@ def run_builder_turn(thread: Thread, db: Session) -> None:
     db.add(turn)
     db.commit()
 
-    thread.status = "waiting_for_agent"
-    thread.current_role = "builder"
+    run.status = "waiting_for_agent"
+    run.current_role = "builder"
     db.commit()
 
-    result = run_agent(thread.builder_command, prompt, thread.working_directory)
+    builder_command = _get_builder_command(run, db)
+    result = run_agent(builder_command, prompt, run.workspace)
 
     turn.raw_output_text = result.stdout
     turn.ended_at = datetime.now(timezone.utc)
 
     if result.error or result.exit_code != 0:
         turn.status = "process_failed"
-        thread.status = "waiting_for_user"
-        thread.last_error = result.error or f"Exit code {result.exit_code}: {result.stderr[:500]}"
+        run.status = "waiting_for_user"
+        run.last_error = result.error or f"Exit code {result.exit_code}: {result.stderr[:500]}"
         db.commit()
         return
 
@@ -107,8 +233,8 @@ def run_builder_turn(thread: Thread, db: Session) -> None:
 
     if not parse_result.success:
         turn.status = "parse_failed"
-        thread.status = "waiting_for_user"
-        thread.last_error = parse_result.error
+        run.status = "waiting_for_user"
+        run.last_error = parse_result.error
         db.commit()
         return
 
@@ -116,31 +242,31 @@ def run_builder_turn(thread: Thread, db: Session) -> None:
     turn.parsed_json = json.dumps(dataclasses.asdict(parse_result.data))
 
     if parse_result.data.status == "BLOCKED":
-        thread.status = "waiting_for_user"
-        thread.last_error = f"Builder blocked: {parse_result.data.blockers}"
+        run.status = "waiting_for_user"
+        run.last_error = f"Builder blocked: {parse_result.data.blockers}"
         db.commit()
         return
 
     # Update current_role to next role BEFORE the pause gate so that resume_thread
     # dispatches to the reviewer if we are paused here.
-    thread.current_role = "reviewer"
+    run.current_role = "reviewer"
     db.commit()
 
-    # Re-read thread state before chaining — user may have paused while builder was running
-    db.refresh(thread)
-    if thread.status == "paused":
+    # Re-read run state before chaining — user may have paused while builder was running
+    db.refresh(run)
+    if run.status == "paused":
         return
 
-    run_reviewer_turn(thread, db)
+    run_reviewer_turn(run, db)
 
 
-def run_reviewer_turn(thread: Thread, db: Session) -> None:
+def run_reviewer_turn(run: Run, db: Session) -> None:
     """Execute one reviewer turn and route based on the verdict."""
     # Get latest builder output from the last succeeded builder turn
     builder_turn = (
         db.query(Turn)
         .filter(
-            Turn.thread_id == thread.id,
+            Turn.run_id == run.id,
             Turn.role == "builder",
             Turn.status == "succeeded",
         )
@@ -149,15 +275,22 @@ def run_reviewer_turn(thread: Thread, db: Session) -> None:
     )
     builder_output: str = builder_turn.raw_output_text if builder_turn else ""
 
-    user_note = get_latest_user_note(thread.id, db)
+    user_note = get_latest_user_note(run.id, db)
+
+    reviewer_profile = _load_profile(db, run.reviewer_agent_profile_id)
+    reviewer_instruction = _get_instruction_text(reviewer_profile)
 
     prompt = build_reviewer_prompt(
-        thread.task_text, thread.plan_text, builder_output, user_note
+        goal=run.goal,
+        plan=run.plan_text or "",
+        builder_output=builder_output,
+        user_note=user_note,
+        instruction_text=reviewer_instruction,
     )
 
-    seq = get_next_sequence_number(thread.id, db)
+    seq = get_next_sequence_number(run.id, db)
     turn = Turn(
-        thread_id=thread.id,
+        run_id=run.id,
         role="reviewer",
         sequence_number=seq,
         prompt_text=prompt,
@@ -167,19 +300,20 @@ def run_reviewer_turn(thread: Thread, db: Session) -> None:
     db.add(turn)
     db.commit()
 
-    thread.status = "waiting_for_agent"
-    thread.current_role = "reviewer"
+    run.status = "waiting_for_agent"
+    run.current_role = "reviewer"
     db.commit()
 
-    result = run_agent(thread.reviewer_command, prompt, thread.working_directory)
+    reviewer_command = _get_reviewer_command(run, db)
+    result = run_agent(reviewer_command, prompt, run.workspace)
 
     turn.raw_output_text = result.stdout
     turn.ended_at = datetime.now(timezone.utc)
 
     if result.error or result.exit_code != 0:
         turn.status = "process_failed"
-        thread.status = "waiting_for_user"
-        thread.last_error = result.error or f"Exit code {result.exit_code}: {result.stderr[:500]}"
+        run.status = "waiting_for_user"
+        run.last_error = result.error or f"Exit code {result.exit_code}: {result.stderr[:500]}"
         db.commit()
         return
 
@@ -187,8 +321,8 @@ def run_reviewer_turn(thread: Thread, db: Session) -> None:
 
     if not parse_result.success:
         turn.status = "parse_failed"
-        thread.status = "waiting_for_user"
-        thread.last_error = parse_result.error
+        run.status = "waiting_for_user"
+        run.last_error = parse_result.error
         db.commit()
         return
 
@@ -198,146 +332,157 @@ def run_reviewer_turn(thread: Thread, db: Session) -> None:
     verdict = parse_result.data.verdict
 
     if verdict == "APPROVE":
-        thread.status = "done"
-        thread.current_role = None
+        run.status = "done"
+        run.current_role = None
         db.commit()
         return
 
     if verdict == "BLOCKED":
-        thread.status = "waiting_for_user"
-        thread.last_error = f"Reviewer blocked: {parse_result.data.rationale}"
+        run.status = "waiting_for_user"
+        run.last_error = f"Reviewer blocked: {parse_result.data.rationale}"
         db.commit()
         return
 
     # CHANGES_REQUESTED
-    if thread.round_count >= thread.max_rounds:
-        thread.status = "waiting_for_user"
-        thread.last_error = "Max review rounds reached"
+    if not run.loop_enabled:
+        # Loop disabled: always stop and wait for user input
+        run.status = "waiting_for_user"
+        run.last_error = "Changes requested. Loop disabled — waiting for user."
         db.commit()
         return
 
-    thread.round_count += 1
-    # Update current_role to next role BEFORE the pause gate so that resume_thread
-    # dispatches to the builder if we are paused here.
-    thread.current_role = "builder"
-    db.commit()
-
-    # Re-read thread state before chaining — user may have paused while reviewer was running
-    db.refresh(thread)
-    if thread.status == "paused":
+    if run.round_count >= run.max_rounds:
+        run.status = "waiting_for_user"
+        run.last_error = "Max review rounds reached"
+        db.commit()
         return
 
-    run_builder_turn(thread, db)
-
-
-# ---------------------------------------------------------------------------
-# Thread lifecycle operations
-# ---------------------------------------------------------------------------
-
-
-def start_thread(thread_id: int, db: Session) -> None:
-    """Start a thread from draft state. Runs synchronously (call via BackgroundTasks)."""
-    thread = db.query(Thread).filter(Thread.id == thread_id).first()
-    if thread is None:
-        raise ValueError(f"Thread {thread_id} not found")
-    if thread.status != "draft":
-        raise ValueError(f"Thread is not in draft state (current status: {thread.status})")
-
-    thread.status = "running"
+    run.round_count += 1
+    # Update current_role to next role BEFORE the pause gate so that resume_thread
+    # dispatches to the builder if we are paused here.
+    run.current_role = "builder"
     db.commit()
 
-    run_builder_turn(thread, db)
+    # Re-read run state before chaining — user may have paused while reviewer was running
+    db.refresh(run)
+    if run.status == "paused":
+        return
+
+    run_builder_turn(run, db)
 
 
-def pause_thread(thread_id: int, db: Session) -> Thread:
-    """Pause a running or waiting_for_agent thread."""
-    thread = db.query(Thread).filter(Thread.id == thread_id).first()
-    if thread is None:
-        raise ValueError(f"Thread {thread_id} not found")
-    if thread.status not in ("running", "waiting_for_agent"):
+# ---------------------------------------------------------------------------
+# Run lifecycle operations
+# ---------------------------------------------------------------------------
+
+
+def start_thread(run_id: int, db: Session) -> None:
+    """Start a run from draft state. Runs synchronously (call via BackgroundTasks)."""
+    run = db.query(Run).filter(Run.id == run_id).first()
+    if run is None:
+        raise ValueError(f"Run {run_id} not found")
+    if run.status != "draft":
+        raise ValueError(f"Run is not in draft state (current status: {run.status})")
+
+    if run.workflow_type == "single_agent":
+        run_single_agent_turn(run_id, db)
+    else:
+        # builder_reviewer
+        run.status = "running"
+        run.current_role = "builder"
+        db.commit()
+        run_builder_turn(run, db)
+
+
+def pause_thread(run_id: int, db: Session) -> Run:
+    """Pause a running or waiting_for_agent run."""
+    run = db.query(Run).filter(Run.id == run_id).first()
+    if run is None:
+        raise ValueError(f"Run {run_id} not found")
+    if run.status not in ("running", "waiting_for_agent"):
         raise ValueError(
-            f"Cannot pause thread in state '{thread.status}'. "
+            f"Cannot pause run in state '{run.status}'. "
             "Allowed from: running, waiting_for_agent"
         )
 
-    thread.status = "paused"
+    run.status = "paused"
     db.commit()
-    return thread
+    return run
 
 
-def resume_thread(thread_id: int, db: Session) -> Thread:
-    """Resume a paused thread. Runs the appropriate next turn synchronously."""
-    thread = db.query(Thread).filter(Thread.id == thread_id).first()
-    if thread is None:
-        raise ValueError(f"Thread {thread_id} not found")
-    if thread.status != "paused":
+def resume_thread(run_id: int, db: Session) -> Run:
+    """Resume a paused run. Runs the appropriate next turn synchronously."""
+    run = db.query(Run).filter(Run.id == run_id).first()
+    if run is None:
+        raise ValueError(f"Run {run_id} not found")
+    if run.status != "paused":
         raise ValueError(
-            f"Cannot resume thread in state '{thread.status}'. Thread must be paused."
+            f"Cannot resume run in state '{run.status}'. Run must be paused."
         )
 
-    thread.status = "running"
+    run.status = "running"
     db.commit()
 
     # Determine what to run based on current_role
-    if thread.current_role == "reviewer":
-        run_reviewer_turn(thread, db)
+    if run.current_role == "reviewer":
+        run_reviewer_turn(run, db)
     else:
         # current_role == "builder" or None: start with builder
-        run_builder_turn(thread, db)
+        run_builder_turn(run, db)
 
-    return thread
+    return run
 
 
-def continue_thread(thread_id: int, db: Session) -> None:
-    """Continue a thread that is waiting_for_user. Runs the appropriate next turn."""
-    thread = db.query(Thread).filter(Thread.id == thread_id).first()
-    if thread is None:
-        raise ValueError(f"Thread {thread_id} not found")
-    if thread.status != "waiting_for_user":
+def continue_thread(run_id: int, db: Session) -> None:
+    """Continue a run that is waiting_for_user. Runs the appropriate next turn."""
+    run = db.query(Run).filter(Run.id == run_id).first()
+    if run is None:
+        raise ValueError(f"Run {run_id} not found")
+    if run.status != "waiting_for_user":
         raise ValueError(
-            f"Cannot continue thread in state '{thread.status}'. Thread must be waiting_for_user."
+            f"Cannot continue run in state '{run.status}'. Run must be waiting_for_user."
         )
 
-    thread.status = "running"
-    thread.last_error = None
+    run.status = "running"
+    run.last_error = None
     db.commit()
 
-    if thread.current_role == "reviewer":
-        run_reviewer_turn(thread, db)
+    if run.current_role == "reviewer":
+        run_reviewer_turn(run, db)
     else:
-        run_builder_turn(thread, db)
+        run_builder_turn(run, db)
 
 
-def stop_thread(thread_id: int, db: Session) -> Thread:
-    """Stop a thread and mark it as failed."""
-    thread = db.query(Thread).filter(Thread.id == thread_id).first()
-    if thread is None:
-        raise ValueError(f"Thread {thread_id} not found")
-    if thread.status in ("done", "failed"):
+def stop_thread(run_id: int, db: Session) -> Run:
+    """Stop a run and mark it as failed."""
+    run = db.query(Run).filter(Run.id == run_id).first()
+    if run is None:
+        raise ValueError(f"Run {run_id} not found")
+    if run.status in ("done", "failed"):
         raise ValueError(
-            f"Cannot stop thread in terminal state '{thread.status}'."
+            f"Cannot stop run in terminal state '{run.status}'."
         )
 
-    thread.status = "failed"
-    thread.last_error = "Stopped by user"
+    run.status = "failed"
+    run.last_error = "Stopped by user"
     db.commit()
-    return thread
+    return run
 
 
-def add_user_note(thread_id: int, note_text: str, db: Session) -> UserNote:
-    """Add a user note to a thread. Allowed from waiting_for_user, paused, or running."""
-    thread = db.query(Thread).filter(Thread.id == thread_id).first()
-    if thread is None:
-        raise ValueError(f"Thread {thread_id} not found")
+def add_user_note(run_id: int, note_text: str, db: Session) -> UserNote:
+    """Add a user note to a run. Allowed from waiting_for_user, paused, or running."""
+    run = db.query(Run).filter(Run.id == run_id).first()
+    if run is None:
+        raise ValueError(f"Run {run_id} not found")
 
     allowed_states = ("waiting_for_user", "paused", "running")
-    if thread.status not in allowed_states:
+    if run.status not in allowed_states:
         raise ValueError(
-            f"Cannot add note to thread in state '{thread.status}'. "
+            f"Cannot add note to run in state '{run.status}'. "
             f"Allowed from: {', '.join(allowed_states)}"
         )
 
-    note = UserNote(thread_id=thread_id, note_text=note_text)
+    note = UserNote(run_id=run_id, note_text=note_text)
     db.add(note)
     db.commit()
     return note

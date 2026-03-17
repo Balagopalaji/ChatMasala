@@ -30,29 +30,64 @@ RATIONALE: <short text>
 # ---------------------------------------------------------------------------
 
 
+def build_single_agent_prompt(
+    goal: str,
+    plan_text: str = None,
+    instruction_text: str = "",
+) -> str:
+    """Build the full prompt text to send to a single agent.
+
+    Sections included (in order):
+    1. Instruction text (if present)
+    2. Goal
+    3. Plan / Constraints (if present)
+    4. Completion instruction
+    """
+    parts: list[str] = []
+
+    if instruction_text:
+        parts.append(instruction_text)
+        parts.append("")
+
+    parts.append(f"## Goal\n{goal}")
+
+    if plan_text:
+        parts.append(f"\n## Plan / Constraints\n{plan_text}")
+
+    parts.append("\nComplete the goal above. When done, output your structured result.")
+
+    return "\n".join(parts)
+
+
 def build_builder_prompt(
-    task: str,
-    plan: str,
+    goal: str,
+    plan: str = "",
     reviewer_feedback: Optional[str] = None,
     user_note: Optional[str] = None,
+    instruction_text: str = "",
 ) -> str:
     """Build the full prompt text to send to the builder agent.
 
     Sections included (in order):
-    1. Role statement
-    2. Task
-    3. Plan
-    4. Latest reviewer feedback (if present)
-    5. Latest user note (if present)
-    6. Builder output contract
+    1. Instruction text (if present)
+    2. Role statement
+    3. Goal
+    4. Plan
+    5. Latest reviewer feedback (if present)
+    6. Latest user note (if present)
+    7. Builder output contract
     """
     parts: list[str] = []
+
+    if instruction_text:
+        parts.append(instruction_text)
+        parts.append("")
 
     parts.append("You are the builder.")
     parts.append("")
 
     parts.append("## Task")
-    parts.append(task.strip())
+    parts.append(goal.strip())
     parts.append("")
 
     parts.append("## Plan")
@@ -81,28 +116,34 @@ def build_builder_prompt(
 
 
 def build_reviewer_prompt(
-    task: str,
-    plan: str,
-    builder_output: str,
+    goal: str,
+    plan: str = "",
+    builder_output: str = "",
     user_note: Optional[str] = None,
+    instruction_text: str = "",
 ) -> str:
     """Build the full prompt text to send to the reviewer agent.
 
     Sections included (in order):
-    1. Role statement
-    2. Task
-    3. Plan
-    4. Latest builder output
-    5. Latest user note (if present)
-    6. Reviewer output contract
+    1. Instruction text (if present)
+    2. Role statement
+    3. Goal
+    4. Plan
+    5. Latest builder output
+    6. Latest user note (if present)
+    7. Reviewer output contract
     """
     parts: list[str] = []
+
+    if instruction_text:
+        parts.append(instruction_text)
+        parts.append("")
 
     parts.append("You are the reviewer.")
     parts.append("")
 
     parts.append("## Task")
-    parts.append(task.strip())
+    parts.append(goal.strip())
     parts.append("")
 
     parts.append("## Plan")

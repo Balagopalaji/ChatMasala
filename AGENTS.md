@@ -4,82 +4,57 @@
 
 This repository is built primarily by AI coding agents.
 
-The goal is to keep implementation deterministic, narrow, and aligned to the active MVP.
+The goal is to keep implementation deterministic, narrow, and aligned to the active spec.
 
 ## Active Source of Truth
 
-Use this file as the implementation authority:
+- Implementation spec: `docs/mvp-build-spec.md`
+- Execution checklist for this pass: `docs/build-plan.md`
 
-- `docs/mvp-build-spec.md`
+When in doubt, follow `docs/build-plan.md`. Archived material in `docs/archive/2026-03-16/` is background only — do not pull requirements from it.
 
-Current redesign-pass execution checklist:
+## Core Terminology
 
-- `docs/build-plan.md`
+This is a clean-break redesign. The active implementation uses:
 
-If `docs/mvp-build-spec.md` conflicts with `docs/build-plan.md` during the active redesign pass, follow `docs/build-plan.md` for implementation decisions and treat `docs/mvp-build-spec.md` as in-progress documentation that must be updated later in the pass.
+- **Run** — the unit of work (replaces Thread)
+- **goal** — the user-supplied objective for a Run
+- **workspace** — directory selected per Run
+- **AgentProfile** — saved CLI agent config (command, name)
+- **Turn** — one agent invocation within a Run
+- **UserNote** — user-injected note during a Run
 
-Treat archived material as background only:
+Do not preserve old Thread/raw-command UX. This is a dev prototype; backward compatibility is out of scope.
 
-- `docs/archive/2026-03-16/`
+## Workflow Presets
 
-Do not pull requirements from the archive unless the active spec is explicitly updated to include them.
+Exactly two hard-coded presets exist:
 
-## Product Boundary
+- `single_agent` — one agent, runs to completion
+- `builder_reviewer` — builder works, reviewer evaluates, loop until approve or max rounds
 
-Build only the current MVP:
+No other presets. No generalized workflow graph engine. No YAML-driven workflow config.
 
-- one user
-- local machine only
-- two CLI agents only: `builder` and `reviewer`
-- one fixed workflow: `builder -> reviewer -> builder`
-- deterministic routing based on strict structured output parsing
-- transcript plus basic controls
+## Out of Scope for This Pass
 
-Redesign-pass note:
+Do not implement:
 
-- the repo is actively moving from `Thread` terminology and raw per-run command entry toward `Run`, `AgentProfile`, workflow presets, and a chat-style relay UI
-- do not preserve old thread/raw-command UX purely for backward compatibility in this local dev prototype
-
-Do not add:
-
-- more than two agents
-- generalized workflow graphs
-- policy-pack framework
-- confidence scoring
-- plugin architecture beyond the minimal CLI runner seam
-- RepoPrompt integration
-- embedded terminal emulator
-- frontend framework unless clearly necessary
-- cloud or multi-user features
-
-## Implementation Priorities
-
-Optimize for:
-
-1. deterministic behavior
-2. simple implementation
-3. easy recovery from failures
-4. AI-agent readability
-5. low abstraction count
-
-Do not optimize for extensibility before the MVP works.
+- DB migration framework (clean schema reset is acceptable)
+- Streaming transport (polling via meta-refresh is sufficient)
+- MCP integration
+- YAML/policy workflow engines
+- More than two agents or presets
+- Confidence scoring, plugin architecture, embedded terminal
+- Cloud or multi-user features
 
 ## Required Stack
 
-Unless the active spec changes, prefer:
-
-- Python
-- FastAPI
-- Jinja templates
-- vanilla JavaScript only where needed
-- SQLite
-- SQLAlchemy if persistence layer needs ORM support
-
-If a simpler approach satisfies the active spec, prefer the simpler approach.
+- Python, FastAPI, SQLite, SQLAlchemy
+- Jinja2 templates
+- Vanilla JavaScript only where needed
+- Polling via meta-refresh for relay view updates
 
 ## Required Project Shape
-
-Target these modules unless there is a strong reason to adjust:
 
 - `app/main.py`
 - `app/db.py`
@@ -89,60 +64,35 @@ Target these modules unless there is a strong reason to adjust:
 - `app/prompts.py`
 - `app/agents/cli_runner.py`
 - `app/orchestrator.py`
-- `app/routes/threads.py`
+- `app/routes/runs.py`
+- `app/routes/settings.py`
 - `tests/`
 
 ## CLI Agent Assumptions
 
-The MVP assumes:
+- Non-interactive CLI agents only
+- Prompt passed via `stdin`; output read from `stdout`
+- One fresh subprocess per Turn
+- No PTY management or long-lived sessions
 
-- non-interactive CLI agents
-- prompt passed through `stdin`
-- final output read from `stdout`
-- one fresh subprocess per turn
+## Implementation Priorities
 
-Do not introduce PTY management or long-lived interactive sessions in the MVP.
+1. Deterministic behavior
+2. Simple implementation
+3. Easy failure recovery
+4. AI-agent readability
+5. Low abstraction count
 
-## Output Contract Rules
-
-Routing must depend on strict structured outputs.
-
-Agents implementing this repo must preserve and enforce the contracts defined in:
-
-- `docs/mvp-build-spec.md`
-
-If parsing fails, fail visibly and route to user attention rather than guessing.
-
-## Archive Rule
-
-Archived docs contain broader ideas that are intentionally out of scope for now.
-
-They may be useful later for:
-
-- richer recovery
-- more workflows
-- policy systems
-- provider abstractions
-
-They are not current requirements.
+Choose the smaller deterministic implementation over a more extensible generalized one.
 
 ## Validation Rule
 
-Do not claim the MVP is complete unless the following are covered:
+Do not claim the implementation is complete unless:
 
-- parser success/failure tests
-- routing tests
-- visible transcript persistence
-- visible failure states
-- pause/resume/stop/note controls
+- parser success/failure tests pass
+- routing tests pass
+- transcript is visible and persisted
+- failure states are visible
+- pause/resume/stop/note controls work
 
-When making implementation changes, update tests or add tests when behavior changes.
-
-## Decision Rule
-
-When a choice exists between:
-
-- a smaller deterministic implementation, and
-- a more extensible generalized implementation
-
-choose the smaller deterministic implementation.
+Update or add tests when behavior changes.

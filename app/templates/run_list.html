@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}ChatMasala — Runs{% endblock %}
+
+{% block sidebar_runs %}
+{% for run in runs %}
+<a href="/runs/{{ run.id }}" class="run-item">
+  <span class="run-item-title">{{ run.title | truncate(28, True) }}</span>
+  <span class="run-item-meta">
+    <span class="status-dot status-dot-{{ run.status }}"></span>
+    <span class="run-item-time">{{ run.updated_at.strftime("%m/%d %H:%M") if run.updated_at else "" }}</span>
+  </span>
+</a>
+{% endfor %}
+{% endblock %}
+
+{% block content %}
+<div class="welcome-state">
+  <div class="welcome-logo">🌶</div>
+  <h1 class="welcome-heading">ChatMasala</h1>
+  <p class="welcome-desc">Orchestrate two AI agents without copy-paste.</p>
+  <a href="/runs/new" class="btn btn-primary welcome-cta">Start a new run →</a>
+
+  {% if not runs %}
+  <p class="empty-state">No runs yet.</p>
+  {% endif %}
+</div>
+
+{% if runs %}
+<div class="thread-list-main">
+  <div class="page-header">
+    <h2>Recent Runs</h2>
+    <a href="/runs/new" class="btn btn-primary">New Run</a>
+  </div>
+  <div class="run-cards">
+    {% for run in runs %}
+    <a href="/runs/{{ run.id }}" class="run-card">
+      <div class="run-card-header">
+        <span class="run-card-title">{{ run.title }}</span>
+        <span class="status-badge status-{{ run.status }}">{{ run.status }}</span>
+      </div>
+      {% if run.goal %}
+      <p class="run-card-goal">{{ run.goal | truncate(80, True) }}</p>
+      {% endif %}
+      <div class="run-card-meta">
+        <span>Round {{ run.round_count }}/{{ run.max_rounds }}</span>
+        <span>{{ run.updated_at.strftime("%Y-%m-%d %H:%M") if run.updated_at else "—" }}</span>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

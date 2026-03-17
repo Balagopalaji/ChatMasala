@@ -34,38 +34,44 @@ def get_db():
         db.close()
 
 
+def seed_default_profiles() -> None:
+    """Create the 3 default AgentProfile rows if they don't already exist."""
+    from app.models import AgentProfile  # local import to avoid circular deps
+
+    defaults = [
+        {
+            "name": "Single Agent",
+            "provider": "claude",
+            "command_template": "claude --dangerously-skip-permissions",
+            "instruction_file": "profiles/agents/single-agent.md",
+        },
+        {
+            "name": "Builder",
+            "provider": "claude",
+            "command_template": "claude --dangerously-skip-permissions",
+            "instruction_file": "profiles/agents/builder.md",
+        },
+        {
+            "name": "Reviewer",
+            "provider": "claude",
+            "command_template": "claude --dangerously-skip-permissions",
+            "instruction_file": "profiles/agents/reviewer.md",
+        },
+    ]
+    db = SessionLocal()
+    try:
+        for profile_data in defaults:
+            existing = db.query(AgentProfile).filter(AgentProfile.name == profile_data["name"]).first()
+            if not existing:
+                db.add(AgentProfile(**profile_data))
+        db.commit()
+    finally:
+        db.close()
+
+
 def init_db():
     """Create all tables defined on Base.metadata."""
     Base.metadata.create_all(bind=engine)
+    seed_default_profiles()
 
 
-def get_settings(db) -> "SettingsData":  # type: ignore[name-defined]
-    """Read all settings keys from DB, return SettingsData with defaults."""
-    from app.models import Settings  # local import to avoid circular deps
-    from app.schemas import SettingsData
-
-    rows = db.query(Settings).all()
-    data: dict = {}
-    for row in rows:
-        data[row.key] = row.value
-
-    return SettingsData(
-        builder_command=data.get("builder_command", ""),
-        reviewer_command=data.get("reviewer_command", ""),
-        default_working_directory=data.get("default_working_directory", ""),
-        default_max_rounds=int(data.get("default_max_rounds", 3) or 3),
-    )
-
-
-def save_settings(db, data: "SettingsData") -> None:  # type: ignore[name-defined]
-    """Upsert settings keys into DB."""
-    from app.models import Settings  # local import to avoid circular deps
-
-    for key, value in data.model_dump().items():
-        row = db.query(Settings).filter(Settings.key == key).first()
-        if row is None:
-            row = Settings(key=key, value=str(value))
-            db.add(row)
-        else:
-            row.value = str(value)
-    db.commit()

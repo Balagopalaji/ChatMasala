@@ -1,48 +1,33 @@
 # ChatMasala
 
-ChatMasala is a minimal local orchestration tool for two CLI AI agents.
+A minimal local orchestration tool for running CLI-based AI agents.
 
-## Redesign Notice
+## What It Does
 
-The product is currently in an active redesign pass.
+ChatMasala lets you create Runs with a goal, select a workspace, and watch CLI agents work through that goal in a chat-style relay view — no manual copy-paste between agents.
 
-For implementation decisions during this pass, use:
+Agents are selected from saved AgentProfiles, each of which stores a CLI command and optional flags.
 
-- `docs/build-plan.md`
+## Workflow Presets
 
-The older MVP wording in this file and in `docs/mvp-build-spec.md` is being replaced incrementally. If those docs conflict with `docs/build-plan.md`, follow `docs/build-plan.md` for the current redesign work.
+Two presets are available. No other workflows exist in this version.
 
-The MVP goal is simple: you provide one task and one plan, the app relays work between a `builder` agent and a `reviewer` agent so you do not have to copy/paste between them.
+- **single_agent** — one agent receives the goal and runs to completion
+- **builder_reviewer** — a builder agent works on the goal, a reviewer agent evaluates the output, and the loop continues until approval or max rounds
 
-This repository is optimized for AI agents building the product. The active source of truth is:
+## User Flow
 
-- `docs/mvp-build-spec.md`
+1. Open the app at http://127.0.0.1:8000
+2. Go to Settings to create AgentProfiles (CLI command, name)
+3. Create a Run: enter a goal, select a workspace, choose a preset, assign profile(s)
+4. Start the Run and watch the chat-style relay view update via polling
 
-Archived broader design material lives here and is not the current scope:
+## Tech
 
-- `docs/archive/2026-03-16/`
-
-## Current Product Boundary
-
-Build only the narrow MVP:
-
-- single-user
-- local machine only
-- two CLI agents only
-- one workflow: `builder -> reviewer -> builder`
-- deterministic routing
-- transcript and basic controls
-
-Do not add:
-
-- generalized multi-agent graphs
-- policy-pack framework
-- plugin marketplace abstractions
-- complex metrics
-- embedded terminal UI
-- cloud/multi-user features
-
-If a future agent finds an attractive idea in the archive, it should not pull it into the MVP unless the active spec is updated first.
+- FastAPI + SQLite + SQLAlchemy
+- Jinja2 templates, vanilla JS only where needed
+- Polling via meta-refresh (no streaming)
+- Local SQLite database; clean-break schema reset is acceptable in this pass
 
 ## Local Setup
 
@@ -53,11 +38,8 @@ cd /path/to/ChatMasala
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
-cp .env.example .env
 uvicorn app.main:app --reload
 ```
-
-Open http://127.0.0.1:8000 in your browser.
 
 ## Running Tests
 
@@ -66,12 +48,8 @@ source .venv/bin/activate
 python -m pytest tests/ -v
 ```
 
-## What It Does
+## Implementation Reference
 
-ChatMasala orchestrates two CLI AI agents (builder and reviewer) on your local machine. You provide:
-- A task description
-- A plan
-- A builder CLI command (e.g. `claude --print`)
-- A reviewer CLI command
-
-The app sends prompts via stdin and reads structured output from stdout. Routing between agents is deterministic — no manual copy-paste needed.
+- Active execution checklist: `docs/build-plan.md`
+- Full spec: `docs/mvp-build-spec.md`
+- Archived prior design material: `docs/archive/2026-03-16/`
