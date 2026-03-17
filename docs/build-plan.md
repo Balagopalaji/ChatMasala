@@ -1,646 +1,754 @@
-# ChatMasala Redesign Pass Checklist
+# ChatMasala Workspace-First Build Plan
 
-> Decision: use this file as the execution checklist for the next redesign pass.
+> Active execution plan for the next product pass.
 >
-> Source of truth for this pass: the current non-archive repository implementation plus the redesign requirements in the active task.
+> Source of truth for this pass: current non-archive repo code, the clarified product intent from the latest design discussion, and the visual direction shown by the mockups in `tmp/Multi-Chat Workflow Builder/`.
 >
-> Ignore for implementation decisions: `docs/archive/**` and `tmp/**`
+> Ignore for implementation decisions:
+> - `docs/archive/**`
+> - old run/thread assumptions that conflict with this plan
+> - `tmp/**` as production code source
 
-## 1. Redesign Summary
+## 1. Product Summary
 
-Redesign the current MVP from a thread/raw-command CRUD prototype into a simpler run-first product where the user:
+ChatMasala is no longer just a run form for a fixed builder/reviewer loop.
 
-- creates a `Run`, not a `Thread`
-- enters a `goal`, not `task_text`
-- selects a `workspace`, not `working_directory`
-- chooses one of exactly two workflow presets:
-  - `Single Agent`
-  - `Builder -> Reviewer`
-- selects saved `AgentProfile` records instead of entering raw commands per run
-- views progress in a chat-style relay page with one or two lanes depending on workflow
-- keeps the existing CLI-first, polling-based backend under the hood
+The intended product is a **workspace-first multi-chat routing app**:
 
-This is a **clean-break dev-pass redesign**, not a migration-heavy compatibility exercise.
+- one workspace contains multiple chat nodes
+- each chat is usable on its own
+- chats can route output to other chats
+- users can manually import message(s) from other chats
+- the top workflow view and lower chat panels are two synchronized views of the same graph
+- users choose recognizable agents/models, not internal profile jargon
 
-## 2. Simplifying Rules For This Pass
+This is **not** a full rewrite of the repo. It is a **bounded rebuild of the product surface** on top of the existing backend/runtime pieces that are still good:
 
-Keep the implementation intentionally narrow.
+- FastAPI app structure
+- SQLite / SQLAlchemy
+- CLI runner seam
+- background-task session pattern
+- advanced instruction-file internals
 
-### Required simplifications
-- Treat the local DB as disposable.
-- Prefer a clean schema reset over migration code.
-- Do **not** build a SQLite migration framework.
-- Do **not** add DB backup logic.
-- Do **not** add `agent_config_json` snapshots yet.
-- Do **not** add a persisted event/system-turn model unless it becomes truly necessary.
-- Keep workflow definitions hard-coded in a tiny constant list.
-- Keep polling via the current HTML refresh approach; no streaming transport work.
-- Keep the CLI seam under `app/agents/cli_runner.py`; users choose profiles, not raw commands per run.
+## 2. Build Strategy
 
-### Safe rule of thumb
-If a part of the plan exists mainly for future-proofing rather than the next visible UX, cut it.
+### Decision
 
-## 3. Recommended Execution Order
+Do a **selective rebuild on top of the current repo**, not a total rewrite.
 
-1. Add `AgentProfile` support, shipped instruction files, and a profile-management settings page.
-2. Rename the product and schema from `Thread` to `Run` with a clean DB break.
-3. Redesign the new run form around workflow preset selection, profile dropdowns, workspace picking, and loop controls.
-4. Update the orchestrator to use selected profiles and the two hard-coded workflows.
-5. Redesign the run detail page into a workflow-aware chat relay view.
-6. Update tests and active docs to match the redesign.
+### Keep
 
-## 4. How To Use This File
+- FastAPI app shell
+- SQLite / SQLAlchemy persistence
+- CLI execution seam under `app/agents/cli_runner.py`
+- background-task DB session ownership pattern
+- advanced prompt / instruction-file support for internal role behavior
+- general settings/config plumbing where still useful
 
-- Complete phases in order.
-- Do not widen scope beyond the checklist below.
-- Check a box only when the work is implemented and verified.
-- If the codebase and this plan diverge, update the plan before continuing.
-- Prefer deleting old prototype assumptions over layering aliases everywhere.
-- If a task is only for old thread/raw-command behavior, remove or replace it instead of preserving it for compatibility.
+### Rebuild / Replace
 
-## 5. Pass Status Overview
+- primary information architecture
+- current run-first product model
+- current main UI surfaces
+- agent selection UX
+- workspace selection UX
+- routing / import UX
 
-- [x] Phase 0 — Scope Lock For The Redesign Pass
-- [x] Phase 1 — Agent Profiles Foundation
-- [x] Phase 2 — Clean-Break Run Schema And Naming
-- [x] Phase 3 — Run Creation UX Redesign
-- [x] Phase 4 — Orchestrator Update For Two Presets
-- [x] Phase 5 — Run Detail Relay View Redesign
-- [x] Phase 6 — Docs And Regression Hardening
+### Why
 
----
+Trying to stretch the current `Run + workflow_type + builder/reviewer` product into the intended workspace product will create a brittle compatibility layer. But throwing away the runtime/backend pieces would waste good infrastructure.
 
-## Phase 0 — Scope Lock For The Redesign Pass
+## 3. Current-State Triage
 
-**Purpose:** confirm the redesign target and explicitly cut future-facing persistence and workflow work before builders start changing code.
+### Keep
 
-### Likely files/modules
-- `README.md`
-- `AGENTS.md`
-- `docs/mvp-build-spec.md`
-- `docs/build-plan.md`
+- CLI runner and non-interactive subprocess assumptions
+- background task wrappers that open their own DB sessions
+- existing DB/project structure
+- useful test discipline and review loops
+- collapsed raw output / prompt visibility as an advanced debugging concept
 
-### Data model decisions to lock
-- `Thread` becomes `Run`
-- `task_text` becomes `goal`
-- `working_directory` becomes `workspace`
-- Add `AgentProfile`
-- `Run` stores direct profile IDs, not profile snapshots
-- No migration framework; clean DB reset is acceptable
+### Rework
 
-### Route/UI decisions to lock
-- `/threads/*` becomes `/runs/*`
-- New run form is goal-first
-- Settings page becomes agent profile management
-- Workflow preset list is exactly:
-  - `single_agent`
-  - `builder_reviewer`
+- `Run` as the primary user concept
+- `workflow_type` as the front door
+- `AgentProfile` as the main user-facing abstraction
+- current settings page
+- current home/list/new/detail page flow
+- workspace path entry
+- current builder/reviewer-first vocabulary
 
-### Test changes to plan for
-- broad route test rewrite
-- model test rewrite
-- orchestrator behavior updates for single-agent and loop toggle
-- docs sync checks at the end of the pass
+### Drop / Retire
 
-### Risks/gotchas
-- The repo currently mixes `Run` copy with `Thread` internals; builders must not mistake that for a completed rename.
-- Current docs still describe the old MVP and must be treated as needing redesign updates, not as blockers against the requested clean break.
-- Avoid inventing a generalized workflow engine while trying to support two presets.
+- stale `/threads/*` links and dead code
+- current run creation form as the main product surface
+- raw “agent profile” mental model in the main UX
+- old thread templates/routes if still present but unused
+- any assumption that ChatMasala is only a builder-reviewer runner
 
-### Builder checklist
-- [x] Confirm the redesign goal in one sentence.
-- [x] Confirm the pass is a clean-break dev prototype change, not a backward-compatible migration effort.
-- [x] Confirm the only workflow presets in scope are `Single Agent` and `Builder -> Reviewer`.
-- [x] Confirm polling remains sufficient.
-- [x] Confirm raw per-run command entry is removed from the run creation UX.
-- [x] Confirm no YAML engines, planner workflows, JSON APIs, MCP, browser extensions, inbox models, route-to actions, hosted routing, PTY embedding, or streaming transports will be added.
-- [x] Add a minimal active-doc alignment update so `README.md`, `AGENTS.md`, and `docs/mvp-build-spec.md` no longer contradict this redesign pass.
+## 4. Product Interpretation
 
-### Verification checklist
-- [x] All builders are working from the same narrow scope.
-- [x] No persistence future-proofing work is planned beyond the next visible UX.
-- [x] The redesign remains CLI-first under the hood.
-- [x] Active docs point builders to this redesign checklist while the broader rewrite is still in progress.
+The clarified product model is:
 
-### Exit checklist
-- [x] Scope is locked.
-- [x] Simplifying rules are accepted.
-- [x] Builders can begin implementation without adding migration/framework work.
+- a **workspace**
+- containing multiple **chat nodes**
+- where each node has an agent choice
+- where nodes can be standalone or connected
+- where output routing can be automatic
+- where message import can be manual
 
----
+Important distinctions:
 
-## Phase 1 — Agent Profiles Foundation
+- **Automatic routing**
+  - when node A finishes, its output may be delivered to node B
+  - for the near-term pass, use only **one downstream automatic route**
+  - do not auto-run chains yet
 
-**Purpose:** introduce first-class agent profiles and shipped instruction files before changing run creation.
+- **Manual import**
+  - user explicitly imports the latest assistant message from another node
+  - this is different from automatic routing
+  - near-term scope: support **last assistant message only**
 
-### Likely files/modules
-- `app/models.py`
-- `app/db.py`
-- `app/schemas.py`
-- `app/routes/settings.py`
-- `app/templates/settings.html`
-- `app/templates/base.html`
-- `tests/test_models.py`
-- `tests/test_routes.py`
-- `README.md`
-- `AGENTS.md`
-- `docs/mvp-build-spec.md`
+- **Role instructions**
+  - builder/reviewer/single-agent prompt files stay internal
+  - they may remain editable in advanced settings via `.md` files
+  - they should not dominate the main UX
 
-### Data model changes
-Add `AgentProfile` with:
-- `name`
-- `provider`
-- `command_template`
-- `instruction_file`
+- **User-facing agent choice**
+  - users should pick real agents/models, RepoPrompt-style
+  - examples:
+    - Claude Sonnet
+    - Claude Opus
+    - Codex CLI
+    - Gemini CLI
+    - Custom
 
-Add only the minimal fields needed for profile selection and command resolution.
+## 5. Visual / Brand Direction
 
-Do **not** add:
-- profile snapshots
-- profile versioning
-- delete/archive history models
-- provider-specific config tables
+The mockups matter. They are incomplete, but they communicate the intended feel.
 
-### File/assets changes
-Ship default instruction markdown files under:
-- `profiles/agents/single-agent.md`
-- `profiles/agents/builder.md`
-- `profiles/agents/reviewer.md`
+Preserve this direction:
 
-Seed a minimal default set of `AgentProfile` rows that reference those files.
+- more like a product workspace than an admin tool
+- airy, open, spatial layout
+- top workflow canvas / overview
+- lower chat panel area
+- persistent left rail for history/navigation
+- modular chat cards/panels
+- minimal, calm chrome
+- routing visible at a glance
 
-### Route/UI changes
-Repurpose `/settings` into an agent profiles page.
+Do **not** preserve the current feel where the app behaves like:
 
-Required UI outcomes:
-- list existing profiles
-- create a profile
-- edit a profile
-- validate that `instruction_file` exists and is readable
+- a CRUD form
+- a backend dashboard
+- a dark settings-first admin tool
 
-Keep scope narrow:
-- create and edit only
-- defer delete/archive actions
+Visual direction is part of the product intent, even if the exact controls still need refinement.
 
-### Test changes
-- add model coverage for `AgentProfile`
-- add route coverage for listing, creating, and editing profiles
-- add validation coverage for missing or unreadable `instruction_file`
-- add seed behavior coverage if seeding is implemented
+## 6. Simplicity Rules
 
-### Risks/gotchas
-- Profile records should stay simple display/config records; do not turn them into a provider abstraction layer.
-- If seed data is added, make it idempotent.
-- Settings page should stop teaching users to think in raw commands per run.
+Keep this pass intentionally narrow.
 
-### Builder checklist
-- [x] Add `AgentProfile` to `app/models.py`.
-- [x] Add any minimal schema/form helpers needed for profile create/edit validation.
-- [x] Add shipped instruction markdown files under `profiles/agents/`.
-- [x] Seed default profiles for single-agent, builder, and reviewer usage.
-- [x] Replace the old global command settings UX with profile management UX.
-- [x] Keep profile management limited to create/edit/list.
+### Build Now
 
-### Verification checklist
-- [x] A fresh local DB includes default agent profiles.
-- [x] `/settings` shows profiles instead of global builder/reviewer command strings.
-- [x] A profile cannot be saved with a missing instruction file.
-- [x] No per-run raw command UX remains on the settings page.
+- workspace-first shell
+- top workflow representation + lower chat panels
+- add/rename/delete node
+- choose agent per node
+- send messages in a node
+- reset/refresh a node conversation
+- one downstream automatic route per node
+- manual import of the last assistant message from another node
+- workspace browse/pick flow
+- navigation cleanup
+- RepoPrompt-style agent selection language
 
-### Exit checklist
-- [x] Agent profiles exist as first-class records.
-- [x] Default instruction files are shipped.
-- [x] Settings page now manages profiles.
+### Do Not Build Now
 
----
+- arbitrary graph engine
+- multi-output routing
+- downstream auto-execution chains
+- drag/drop graph editing
+- rich arrow/canvas flowchart engine
+- orchestrator node
+- scribe node
+- browser extension
+- MCP intake
+- inbox / idea revival
+- hosted-browser chat routing
+- PTY embedding
+- Electron migration
+- provider-auth platform work beyond simple local CLI detection/config
 
-## Phase 2 — Clean-Break Run Schema And Naming
+### Rule of thumb
 
-**Purpose:** rename the core product model and strip out thread/raw-command terminology across implementation surfaces.
+If a feature mainly exists to future-proof the graph rather than improve the next visible UX, defer it.
 
-### Likely files/modules
-- `app/models.py`
-- `app/db.py`
-- `app/schemas.py`
-- `app/main.py`
-- `app/routes/threads.py`
-- `app/templates/thread_list.html`
-- `app/templates/thread_new.html`
-- `app/templates/thread_detail.html`
-- `tests/test_models.py`
-- `tests/test_routes.py`
-- `tests/test_orchestrator.py`
+## 7. Core UX Direction
 
-### Data model changes
-Replace `Thread` with `Run`.
+### Main workspace screen
 
-Recommended `Run` fields for this pass:
+The main product surface should become:
+
+- **left sidebar**
+  - clickable logo/home
+  - recent workspace history
+  - new workspace action
+  - settings
+
+- **top workflow area**
+  - simplified node overview / flow strip
+  - node label
+  - selected agent
+  - route target
+  - status
+  - enough structure to see the system at a glance
+
+- **lower chat area**
+  - one panel per node
+  - node name
+  - agent dropdown
+  - route target dropdown
+  - import-last-message action
+  - transcript
+  - input box
+  - reset/delete actions
+
+### Settings / advanced surface
+
+Settings should become:
+
+- primarily about connected CLI providers / agent presets
+- secondarily about advanced custom agents
+- advanced prompt / `.md` file wiring should live here, not in the main workspace
+
+Required near-term settings shape:
+
+- a `CLI Providers` area
+  - Claude CLI
+  - Codex CLI
+  - Gemini CLI
+  - Custom
+- each provider should show:
+  - detected / not detected
+  - connected / not connected
+  - editable backing command
+  - `Test Connection`
+- agent presets shown in the main workspace should derive from these provider connections
+- users should not have to think in terms of raw `AgentProfile` rows in the normal workflow
+
+### Workspace selection
+
+The workspace field must improve.
+
+Near-term target:
+
+- show current workspace path
+- provide `Browse...`
+- allow manual path entry as fallback
+
+Browser-first acceptable implementation:
+
+- simple server-backed directory picker / browser
+- not a full tree editor
+- not a full native desktop integration yet
+
+## 8. Data Model Direction
+
+### Near-term recommended model
+
+This pass should move toward:
+
+- `Workspace`
+  - top-level saved workspace/session
+
+- `ChatNode`
+  - reusable chat/agent node within a workspace
+
+- `ChatMessage`
+  - visible transcript per node
+
+- `AgentProfile`
+  - retained internally as config storage, but reframed in UX as user-facing “Agent” choices
+
+### Recommended schema shape
+
+Keep this shape minimal and implementation-oriented.
+
+#### `Workspace`
+
+Recommended fields:
+
 - `id`
 - `title`
-- `goal`
-- `plan_text`
-- `workflow_type`
-- `primary_agent_profile_id` nullable
-- `builder_agent_profile_id` nullable
-- `reviewer_agent_profile_id` nullable
-- `workspace` nullable
-- `loop_enabled`
-- `status`
-- `current_role` nullable
-- `round_count`
-- `max_rounds`
-- `last_error`
+- `workspace_path` nullable
 - `created_at`
 - `updated_at`
 
-Update related models:
-- `Turn.thread_id` -> `Turn.run_id`
-- `UserNote.thread_id` -> `UserNote.run_id`
+Purpose:
 
-Remove old per-run raw command fields from the top-level model.
+- saved top-level workspace/session
+- selected repo/directory for CLI execution
 
-### DB strategy
-Use a clean-break schema update appropriate for a disposable local prototype.
+#### `ChatNode`
 
-Implementation expectation:
-- builders may delete the local DB and recreate it
-- no migration framework
-- no backup logic
-- no legacy compatibility layer beyond what is truly needed during the code change
+Recommended fields:
 
-### Route/UI changes
-- rename primary route surfaces from `/threads/*` to `/runs/*`
-- rename route/module/template references from thread to run terminology
-- keep the existing app structure simple; a renamed route module is fine
-- remove stale thread labels and comments from templates
+- `id`
+- `workspace_id`
+- `name`
+- `agent_profile_id` nullable
+- `downstream_node_id` nullable
+- `order_index`
+- `status`
+  - `idle`
+  - `running`
+  - `needs_attention`
+- `last_error` nullable
+- `conversation_version`
+- `created_at`
+- `updated_at`
 
-### Test changes
-- rewrite model tests to use `Run`
-- rewrite route tests to target `/runs/*`
-- update any FK assertions to `run_id`
-- update helper fixtures and factory names to run terminology
+Important rules:
 
-### Risks/gotchas
-- Partial renames will create confusing mixed terminology across routes, models, and templates.
-- This pass touches nearly every selected test file; do not attempt tiny patch edits while keeping old semantics.
-- Avoid adding long-lived `/threads/*` aliases unless absolutely necessary for bootstrapping the branch.
+- one downstream automatic route only in this pass
+- no edge table yet
+- a node may exist with no downstream route
+- a node may exist with no selected agent until configured
 
-### Builder checklist
-- [x] Rename the top-level ORM model from `Thread` to `Run`.
-- [x] Rename `task_text` to `goal`.
-- [x] Rename `working_directory` to `workspace`.
-- [x] Replace direct command fields on the top-level model with profile ID fields.
-- [x] Rename `thread_id` FKs to `run_id` in related models.
-- [x] Update route/module/template naming to run terminology.
-- [x] Remove active code paths that still depend on old global command settings.
+#### `ChatMessage`
 
-### Verification checklist
-- [x] The app boots against a fresh clean DB.
-- [x] No selected implementation file still uses `Thread` as the active product concept.
-- [x] No selected implementation file still uses `task_text` or `working_directory` as the active user-facing field names.
-- [x] Route tests can be updated against `/runs/*` without compatibility hacks.
+Recommended fields:
 
-### Exit checklist
-- [x] `Run` is the canonical domain model.
-- [x] Clean DB recreation works.
-- [x] Old thread/raw-command persistence assumptions are removed.
+- `id`
+- `node_id`
+- `sequence_number`
+- `conversation_version`
+- `role`
+  - `user`
+  - `assistant`
+  - `system`
+- `message_kind`
+  - `manual_user`
+  - `manual_import`
+  - `auto_route`
+  - `assistant_reply`
+  - `reset_marker`
+  - `error`
+- `content`
+- `source_node_id` nullable
+- `source_message_id` nullable
+- `prompt_text` nullable
+- `raw_output_text` nullable
+- `status`
+  - `completed`
+  - `running`
+  - `failed`
+- `error_text` nullable
+- `created_at`
+- `completed_at` nullable
+
+Important invariants:
+
+- only assistant messages should carry execution metadata like `prompt_text` / `raw_output_text`
+- imported or auto-routed messages must preserve source provenance
+- transcript reads should respect `conversation_version`
+
+#### `AgentProfile`
+
+Keep the existing table, but add enough metadata to support real built-in agent choices cleanly.
+
+Recommended additions:
+
+- `is_builtin`
+- `builtin_key` nullable
+- `sort_order`
+
+Use this to distinguish seeded provider-backed agents from custom advanced entries.
+
+### Normal node behavior
+
+Standard chat nodes must behave like normal conversational CLI agents.
+
+That means:
+
+- user sends a normal message to a node
+- the node receives conversational context plus any lightweight internal prompting
+- the node returns a normal assistant reply
+
+Do **not** make ordinary nodes depend on builder/reviewer-style structured-output parsing as their default behavior.
+
+Structured-output contracts may remain available for specialized internal flows, but they are not the default execution model for the workspace product.
+
+### Important guidance
+
+Do not force users to think in terms of:
+
+- role prompt files
+- raw command templates
+- builder/reviewer profiles
+
+Instead:
+
+- keep those as internal/advanced config
+- expose recognizable agent choices in the main UI
+
+### Future room without implementing it now
+
+The model should not block later ideas such as:
+
+- orchestrator node
+- scribe node
+- multi-output routing
+- richer flow visualisation
+- inbox / revived ideas
+
+But those should **not** be implemented in this pass.
+
+### Execution rules that must be preserved
+
+- route target should be captured at send start for that execution
+- changing agent or route affects future sends only
+- delete/reset should be blocked while a node is `running`
+- duplicate auto-route/import delivery should be prevented using source provenance
+
+## 9. Keep / Rework / Drop Summary
+
+### Keep
+
+- backend/runtime stack
+- CLI runner seam
+- background-task DB session pattern
+- advanced instruction-file mechanism
+- deterministic execution mindset
+
+### Rework
+
+- `Run history` into `Workspace history`
+- `Run detail` into multi-chat workspace
+- `AgentProfile` into internal storage behind user-facing “Agent” presets
+- settings into `Agents / Advanced`
+- workspace field into browse-first UX
+- current home screen into workspace shell
+
+### Drop / retire
+
+- stale `/threads/new`
+- non-clickable logo
+- run creation form as the front door
+- builder/reviewer as the whole product identity
+- old dead thread routes/templates
+
+## 10. Proposed Phases
+
+- [ ] Phase 0 — Scope Lock And Active-Doc Alignment
+- [ ] Phase 1 — Navigation And Vocabulary Cleanup
+- [ ] Phase 2 — Agent UX Reframe
+- [ ] Phase 3 — Workspace Selection UX
+- [ ] Phase 4 — Workspace / Node / Message Foundation
+- [ ] Phase 5 — Workspace UI Cut-In
+- [ ] Phase 6 — Routing / Import / Reset Behavior
+- [ ] Phase 7 — Settings / Advanced Agent Cleanup
+- [ ] Phase 8 — Cutover And Legacy Retirement
 
 ---
 
-## Phase 3 — Run Creation UX Redesign
+## Phase 0 — Scope Lock And Active-Doc Alignment
 
-**Purpose:** make run creation workflow-first, profile-based, and workspace-aware.
+**Purpose:** lock the clarified product intent before implementation drifts back into the old run-first model.
 
-### Likely files/modules
-- `app/routes/threads.py` or renamed run route module
-- `app/templates/thread_new.html` or renamed run template
+### Required outcomes
+
+- [ ] `README.md` no longer describes the app primarily as a run/preset tool.
+- [ ] `AGENTS.md` points builders to this workspace-first plan.
+- [ ] `docs/mvp-build-spec.md` is marked as outdated or secondary wherever it still contradicts this plan.
+- [ ] Active docs explicitly state:
+  - workspace-first direction
+  - bounded rebuild, not full rewrite
+  - mockups are design intent, not production code
+
+### Risks / gotchas
+
+- If active docs still describe the wrong product, future agents will faithfully rebuild the wrong app.
+
+---
+
+## Phase 1 — Navigation And Vocabulary Cleanup
+
+**Purpose:** remove stale run/thread leftovers and obvious UX contradictions immediately.
+
+### Likely files
+
 - `app/templates/base.html`
-- `app/static/main.js`
-- `app/static/main.css`
-- `tests/test_routes.py`
+- current home/list templates
+- current settings template labels
+- route/template references still pointing at `/threads/*`
 
-### Data model changes
-No new model beyond Phase 2.
+### Required outcomes
 
-Use the `Run` fields already defined:
-- `goal`
-- `workflow_type`
-- `primary_agent_profile_id`
-- `builder_agent_profile_id`
-- `reviewer_agent_profile_id`
-- `workspace`
-- `loop_enabled`
-- `max_rounds`
+- [ ] sidebar `+ New Run` no longer links to `/threads/new`
+- [ ] logo/home is clickable
+- [ ] stale thread wording is removed from active surfaces
+- [ ] “Agent Profile” wording is removed from the main workflow UI
 
-### Route/UI changes
-Redesign the new run form so:
-- `goal` is the primary field
-- `Plan / Constraints` is secondary and optional
-- `title` is auto-generated from `goal`
-- workflow preset dropdown contains only:
-  - `Single Agent`
-  - `Builder -> Reviewer`
-- agent dropdowns are populated from `AgentProfile`
-- workspace input supports recent workspaces plus manual entry
-- loop toggle and max rounds are only shown for loop-capable workflows
-- for now, only `Builder -> Reviewer` is loop-capable
+### Risks / gotchas
 
-Recommended implementation choices:
-- derive recent workspaces from recent `Run.workspace` values
-- use a text input plus suggestions or chips; do not add a workspace table
-- keep client-side JS minimal and server-rendered
-
-### Test changes
-- add route coverage for workflow dropdown options
-- add route coverage for profile dropdown population
-- add route coverage for workspace suggestions
-- add route coverage for goal-required validation
-- add route coverage for title auto-generation
-- add route coverage for loop/max-round conditional behavior
-
-### Risks/gotchas
-- Do not reintroduce raw command fields in a hidden advanced section.
-- Keep the workflow logic hard-coded; this is not the place to build a reusable engine.
-- Make sure title generation is deterministic and editable later, rather than turning title into a large design problem.
-
-### Builder checklist
-- [x] Make `goal` the primary run creation field.
-- [x] Make `Plan / Constraints` secondary and optional.
-- [x] Remove the required create-time title field from the main UX.
-- [x] Auto-generate the initial title from the goal.
-- [x] Add the two-option workflow preset dropdown.
-- [x] Add profile dropdowns populated from `AgentProfile`.
-- [x] Add workspace picking with recent values plus manual path entry.
-- [x] Show loop toggle and max rounds only for `Builder -> Reviewer`.
-- [x] Remove raw command entry from the new run form.
-
-### Verification checklist
-- [x] A user can create a single-agent run without seeing reviewer-specific controls.
-- [x] A user can create a builder-reviewer run with builder and reviewer profile selectors.
-- [x] A user can enter a workspace manually or choose a recent one.
-- [x] The generated title is reasonable and the run still persists if the user never typed a title.
-
-### Exit checklist
-- [x] Run creation is profile-based and workflow-first.
-- [x] Goal is primary in the UX.
-- [x] Workspace and loop controls behave as required.
+- This is not enough by itself. Do not mistake vocabulary cleanup for product completion.
 
 ---
 
-## Phase 4 — Orchestrator Update For Two Presets
+## Phase 2 — Agent UX Reframe
 
-**Purpose:** keep the deterministic CLI-first backend, but route work based on selected profiles and the two supported workflow presets.
+**Purpose:** make agent choice feel like selecting real tools/models, not configuring backend records.
 
-### Likely files/modules
-- `app/orchestrator.py`
-- `app/prompts.py`
-- `app/parser.py`
-- `app/agents/cli_runner.py`
+### Likely files
+
+- settings routes/templates
+- run/workspace templates or new frontend UI
+- DB seed logic
+- `AgentProfile` usage points
+
+### Required outcomes
+
+- [ ] main UI says `Agent`, not `Agent Profile`
+- [ ] seeded/default selectable agents look like real choices, e.g.:
+  - Claude Sonnet
+  - Claude Opus
+  - Codex CLI
+  - Gemini CLI
+  - Custom
+- [ ] internal prompt/instruction-file details are hidden from normal workflow creation
+- [ ] advanced settings still allow power-user editing if needed
+
+### Risks / gotchas
+
+- Do not overbuild a provider auth platform in this pass.
+- Do not make users configure command templates in the main workspace UI.
+
+---
+
+## Phase 3 — Workspace Selection UX
+
+**Purpose:** make workspace choice usable for normal humans, not just people who know and paste repo paths.
+
+### Likely files
+
+- workspace/new entry UI
+- settings if browse roots/config are needed
+- backend directory browse endpoint(s)
+
+### Required outcomes
+
+- [ ] workspace path can be selected through a `Browse...` flow
+- [ ] manual path entry remains available as fallback
+- [ ] selected workspace is clearly visible in the workspace shell
+- [ ] behavior is browser-first and simple; no Electron dependency
+
+### Risks / gotchas
+
+- Keep the directory picker lightweight.
+- Do not sink the pass into a full file-tree UI.
+
+---
+
+## Phase 4 — Workspace / Node / Message Foundation
+
+**Purpose:** establish the actual product model beneath the new UI.
+
+### Likely files
+
+- `app/models.py`
 - `app/db.py`
-- `tests/test_orchestrator.py`
-- `tests/test_parser.py`
+- `app/schemas.py`
+- tests for model behavior
 
-### Data model changes
-No new persistence types beyond `Run`, `Turn`, `UserNote`, and `AgentProfile`.
+### Required outcomes
 
-Keep workflow metadata minimal:
-- hard-code the two preset IDs in code
-- do not add a workflow table
-- do not add a generalized workflow module beyond a tiny constant list if needed
+- [ ] a top-level workspace/session model exists
+- [ ] chat nodes are first-class persisted objects
+- [ ] node messages/transcripts are first-class persisted objects
+- [ ] current model choices do not force the app back into one/two-lane fixed workflows
+- [ ] the DB strategy is explicit and bounded
 
-### Orchestrator changes
-Required behavior:
-- `single_agent` runs one agent lane with one selected profile
-- `builder_reviewer` preserves the deterministic relay loop
-- selected profile records determine:
-  - `command_template`
-  - `instruction_file`
-- `workspace` is passed through to the CLI runner
-- background task entry points must own their own DB session rather than reusing the request session
+### Build guidance
 
-Loop behavior:
-- only `builder_reviewer` supports looping
-- if loop is disabled and reviewer requests changes, route to user attention
-- if max rounds are reached, route to user attention
+- Prefer a clean pass with small, focused new entities over compatibility hacks.
+- Do not add a generalized graph engine yet.
+- Use a clean DB reset rather than a compatibility layer if the new model makes the old run schema awkward.
 
-Prompt/parser behavior:
-- rename task language to goal language
-- add single-agent prompt and parser contract
-- keep structured-output parsing strict
-- keep prompts deterministic and simple
+### Risks / gotchas
 
-System/routing cards:
-- first try deriving routing cards in the UI from existing turns and run state
-- do not persist a new system event model unless the UI truly cannot be implemented cleanly without it
-
-### Test changes
-- add single-agent parser coverage
-- add single-agent orchestration coverage
-- add loop-disabled builder-reviewer coverage
-- add max-round coverage under the renamed run model
-- add regression coverage for background-task-safe session handling
-- update mocks and assertions from raw command fields to selected profiles
-
-### Risks/gotchas
-- The current background task pattern passes a request-scoped session into background work; that should be corrected in this phase.
-- Avoid turning prompt construction into profile/policy layering.
-- Avoid persisting extra routing artifacts unless the UI proves it is necessary.
-
-### Builder checklist
-- [x] Update the orchestrator to load selected profile records for each run.
-- [x] Use profile `command_template` instead of raw per-run commands.
-- [x] Load instruction text from `instruction_file`.
-- [x] Add `single_agent` execution flow.
-- [x] Keep `builder_reviewer` deterministic and simple.
-- [x] Respect `loop_enabled` and `max_rounds` only for loop-capable workflows.
-- [x] Rename runner usage from `working_directory` to `workspace`.
-- [x] Fix background task/session handling so background work opens its own DB session.
-- [x] Keep routing/event persistence out unless proven necessary.
-
-### Verification checklist
-- [x] A single-agent run can start and complete through the existing CLI seam.
-- [x] A builder-reviewer run still routes deterministically.
-- [x] Disabling loops causes reviewer change requests to stop for user attention.
-- [x] Max rounds still cap builder-reviewer cycling.
-- [x] Background tasks no longer rely on request-scoped DB sessions.
-
-### Exit checklist
-- [x] Both supported presets run end to end.
-- [x] Profile selection drives command execution.
-- [x] Orchestrator complexity remains bounded.
+- Do not create two equal product models that compete (`Run` product and `Workspace` product at the same time).
+- Do not keep both a real workspace product and a hidden run-first fallback alive for long.
 
 ---
 
-## Phase 5 — Run Detail Relay View Redesign
+## Phase 5 — Workspace UI Cut-In
 
-**Purpose:** redesign the detail page around the new product model while reusing as much of the current transcript UI foundation as possible.
+**Purpose:** build the actual workspace shell and make the top workflow view + lower chat panels represent the same graph.
 
-### Likely files/modules
-- `app/routes/threads.py` or renamed run route module
-- `app/templates/thread_detail.html` or renamed run detail template
-- `app/templates/base.html`
-- `app/static/main.css`
-- `app/static/main.js`
-- `tests/test_routes.py`
+### Likely files
 
-### Data model changes
-No required new persistence for this phase.
+- main route shell
+- new templates or a small frontend app
+- UI components for workflow overview and chat panels
+- sidebar/history UI
 
-Prefer using existing `Turn` and `Run` data to render the view.
+### Required outcomes
 
-### Route/UI changes
-Required outcomes:
-- `Single Agent` renders one lane
-- `Builder -> Reviewer` renders two lanes
-- routing events appear as system cards in the UI
-- raw prompt/output details stay collapsed by default
-- title is editable later on the detail page
-- metadata area shows workflow, workspace, chosen profiles, and current status
-- polling remains sufficient via the existing meta refresh approach while active
+- [ ] top workflow representation exists
+- [ ] lower chat panels exist
+- [ ] both reflect the same shared state/model
+- [ ] clicking/focusing a node in one view maps clearly to the other
+- [ ] each chat panel supports:
+  - rename
+  - delete
+  - choose agent
+  - send input
 
-Recommended approach:
-- keep the transcript/chat visual language already present
-- adapt the current detail page rather than rewriting the whole design system
-- derive system cards from run/turn state where possible instead of persisting them
+### Important note
 
-### Test changes
-- add detail view coverage for single-agent layout
-- add detail view coverage for builder-reviewer layout
-- add title edit route coverage
-- add route/template coverage for workflow metadata display
-- add coverage that raw prompt/output sections remain collapsed by default
+The mockup in `tmp/**` is a reference for structure and feel. Do not ship it directly as production code.
 
-### Risks/gotchas
-- The current detail page already has separate builder/reviewer columns; builders should reuse that visual base where possible.
-- Deriving routing cards in the UI must stay understandable; if it becomes brittle, only then consider a minimal persisted alternative.
-- Do not widen this into a full activity/event timeline subsystem.
+Preferred implementation direction:
 
-### Builder checklist
-- [x] Rename the detail view from thread to run terminology.
-- [x] Keep polling via meta refresh for active states.
-- [x] Render one lane for `Single Agent`.
-- [x] Render two lanes for `Builder -> Reviewer`.
-- [x] Show routing/system cards in the transcript UI.
-- [x] Keep raw prompt/output details collapsed by default.
-- [x] Add editable title support on the detail page.
-- [x] Show workflow, workspace, and selected profile metadata.
+- if straightforward, use a small first-class frontend bundle for the synchronized workspace UI
+- do not try to recreate the full shared graph/panel interaction model with ad hoc Jinja DOM patching alone
+- do not copy prototype localStorage logic into production
 
-### Verification checklist
-- [x] Single-agent runs are easy to understand in one lane.
-- [x] Builder-reviewer runs remain easy to scan in two lanes.
-- [x] The detail view no longer feels like raw CRUD over backend fields.
-- [x] Polling still keeps the active relay view usable without streaming.
+### Risks / gotchas
 
-### Exit checklist
-- [x] Run detail matches the redesign target.
-- [x] Chat-style relay view is in place.
-- [x] No streaming/event-system scope creep was introduced.
+- Avoid duplicating state between the diagram and the chat panels.
+- Do not pull prototype over-scope features in by accident.
+- Validate the frontend approach early; a quick spike is better than discovering too late that the chosen UI layer is too constrained.
 
 ---
 
-## Phase 6 — Docs And Regression Hardening
+## Phase 6 — Routing / Import / Reset Behavior
 
-**Purpose:** finish the pass by updating tests and rewriting active docs so future builders do not revert the redesign.
+**Purpose:** make the workspace act like a routing app, not just a collection of adjacent chats.
 
-### Likely files/modules
-- `README.md`
-- `AGENTS.md`
-- `docs/mvp-build-spec.md`
-- `docs/build-plan.md`
-- `tests/test_models.py`
-- `tests/test_routes.py`
-- `tests/test_orchestrator.py`
-- `tests/test_parser.py`
-- `tests/test_placeholder.py`
+### Required outcomes
 
-### Data model changes
-None.
+- [ ] each node can set one downstream automatic route
+- [ ] manual import of the latest assistant message from another node works
+- [ ] output routing and manual import are clearly distinct concepts in UI and code
+- [ ] imported or auto-routed messages visibly show their source node/message provenance
+- [ ] nodes can be reset/refreshed without deleting their configuration
+- [ ] standalone nodes still work normally with no route
 
-### Route/UI changes
-None beyond final cleanup and doc accuracy.
+### Explicit deferrals
 
-### Test changes
-Required update areas:
-- model tests renamed to `Run`
-- route tests renamed to `/runs/*`
-- new form expectations for goal/workflow/profiles/workspace
-- single-agent behavior coverage
-- builder-reviewer loop toggle coverage
-- detail page rendering coverage
-- profile settings coverage
-- any stale placeholder comments or old MVP language removed
+- [ ] no multi-output routing
+- [ ] no auto-run chains
+- [ ] no import-last-N yet
+- [ ] no orchestrator/scribe node types yet
 
-### Docs changes
-Update active docs to reflect:
-- `Run` terminology
-- `goal`
-- `workspace`
-- profile-based agent selection
-- workflow presets limited to two hard-coded options
-- chat-style relay view
-- polling still sufficient
-- clean-break dev prototype expectations where relevant
+### Risks / gotchas
 
-### Risks/gotchas
-- If docs are left in the old thread/raw-command state, future agents will likely reintroduce removed behavior.
-- This phase is not optional; documentation drift would create immediate confusion for later passes.
-
-### Builder checklist
-- [x] Rewrite tests to match the redesigned product model.
-- [x] Remove old thread/raw-command assumptions from active tests.
-- [x] Update `README.md` to describe the redesigned product.
-- [x] Update `AGENTS.md` to describe the new active boundary.
-- [x] Update `docs/mvp-build-spec.md` to reflect the redesign.
-- [x] Remove stale comments and placeholder language that still describe the old MVP.
-
-### Verification checklist
-- [x] Active docs match shipped behavior.
-- [x] Tests cover the two supported workflows.
-- [x] No selected file still describes raw per-run command entry as the main UX.
-- [x] No active doc points builders toward archived concepts.
-
-### Exit checklist
-- [x] Docs and tests match the redesign.
-- [x] The pass is safe for the next builder to continue from.
-- [x] The repo no longer presents the old MVP as current truth.
+- Route changes should affect future sends, not unpredictably mutate already-running work.
+- Reset should preserve node identity/config while refreshing conversation context.
+- Do not make imports/routed inputs invisible; the user should be able to tell where a message came from.
+- Automatic routing in this pass should mean message delivery only, not downstream auto-execution.
 
 ---
 
-## 6. Explicit Deferred List
+## Phase 7 — Settings / Advanced Agent Cleanup
 
-Do **not** add any of the following in this pass:
+**Purpose:** keep power-user configuration available without making it the product’s main face.
 
-- YAML workflow engines
-- planner workflows
-- arbitrary multi-agent graphs
-- JSON or public API expansion
-- MCP integration
-- browser extensions
-- inbox/task models
-- manual route-to actions
-- hosted or cloud routing
-- PTY embedding
-- streaming transports
-- websocket or SSE transport work
-- profile snapshot persistence
-- workflow definition frameworks
-- migration frameworks
-- DB backup/rollback systems
-- workspace management tables
-- filesystem picker dialogs
-- provider-specific command templating systems
-- profile delete/archive UX unless it becomes necessary for correctness
+### Required outcomes
 
-## 7. Final Recommendation
+- [ ] settings are framed around agents/providers/advanced config
+- [ ] settings include a clear `CLI Providers` section, not just relabeled profile forms
+- [ ] users can see detected/connected state for supported CLIs
+- [ ] users can run `Test Connection` for supported CLIs
+- [ ] normal workspace agent selection is backed by provider presets, not raw profile records
+- [ ] advanced `.md` instruction file handling stays available, but not front-and-center
+- [ ] custom agents are easier to create than the current raw form
+- [ ] settings do not feel like the main entry point of the product
 
-Yes, this redesign scope remains appropriately simple **if** builders hold the line on the trimmed plan:
+### Risks / gotchas
 
-- clean DB reset instead of migration work
-- direct profile IDs on `Run`
-- exactly two hard-coded workflow presets
-- profile-based command selection
-- chat-style relay redesign
-- polling kept as sufficient
-- no future-proofing layers unless they are required for the next visible UX
+- This pass should improve usability, not just relabel technical fields.
 
-If the pass starts adding persistence indirection, generalized workflow abstractions, or transport changes, it has gone out of scope.
+---
+
+## Phase 8 — Cutover And Legacy Retirement
+
+**Purpose:** make the new workspace the actual app, not a side experiment.
+
+### Required outcomes
+
+- [ ] `/` lands on the workspace-first experience
+- [ ] old run-first pages are removed or demoted
+- [ ] no active nav path leads users into the obsolete product flow
+- [ ] active docs/tests describe the workspace product, not the older run-first app
+
+### Risks / gotchas
+
+- Do not remove legacy pieces before the new workspace is actually usable.
+
+## 11. Decision Log
+
+### Drag-and-drop editing
+
+**Later**
+
+It is desirable, but not first priority. The synchronized workspace model matters more than canvas editing polish.
+
+### Multi-output routing
+
+**Later**
+
+Important for the long-term “true routing app” idea, but too much for this pass.
+
+### Chat reset / refresh
+
+**Now**
+
+It is part of the intended node behavior and helps conserve context/tokens.
+
+### Orchestrator / scribe nodes
+
+**Later, but important**
+
+These are part of the long-term direction because they help preserve global context as the graph grows.
+
+### Role instructions
+
+**Keep internal**
+
+They may remain editable in advanced settings via linked `.md` files, but they should not dominate the main UX.
+
+### Agent presets / providers
+
+**Now**
+
+The workspace should offer real agent choices in a simple dropdown, RepoPrompt-style.
+
+Settings must also include a RepoPrompt-style `CLI Providers` surface so provider connection/detection/testing is explicit, rather than hidden behind abstract profile management.
+
+## 12. Final Simplicity Check
+
+This scope is still appropriately simple **if** the pass stops at:
+
+- one workspace model
+- generic node/chat behavior
+- one downstream route per node
+- manual import of the latest assistant message only
+- reset/refresh support
+- no drag/drop
+- no multi-output
+- no orchestrator/scribe implementation yet
+- no provider-auth platform explosion
+
+Complexity spikes if this pass tries to combine any two of:
+
+- drag/drop graph editing
+- multi-output routing
+- auto-run chains
+- orchestrator/scribe implementation
+- browser extension / MCP / inbox work
+- keeping the old run-first product alive alongside the new workspace product
