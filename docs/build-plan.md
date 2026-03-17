@@ -752,3 +752,419 @@ Complexity spikes if this pass tries to combine any two of:
 - orchestrator/scribe implementation
 - browser extension / MCP / inbox work
 - keeping the old run-first product alive alongside the new workspace product
+
+---
+
+---
+
+# Pass 2 — Workspace UX, Loop Routing, and Visual Direction
+
+> Pass 1 (Phases 0–8) established the workspace-first foundation. Pass 2 corrects usability gaps found during live testing, introduces proper loop routing semantics, cleans up the provider/agent surface, and moves toward the visual direction shown in the mockups.
+>
+> Active execution source of truth for this pass: this document and the mockup screenshots in `tmp/Multi-Chat Workflow Builder/screeenshots/`.
+>
+> Implementation order: usability first → routing/loop model → provider/agent defaults → visual polish. Do not start visual restyling before structural changes are complete.
+>
+> Important override: where Pass 2 conflicts with earlier Pass 1 routing/model guidance in this document, Pass 2 wins. In particular:
+> - `downstream_node_id` is superseded by `output_node_id` and `loop_node_id`
+> - output routes remain message-delivery-only
+> - loop-back routes are the one allowed auto-execution path in this pass
+
+## Pass 2 — Decision Log
+
+### Auto-execution semantics: resolved
+
+Output routes and loop-back routes have different auto-execution rules:
+
+- **Output route** (`output_node_id`): message delivery only. When a node completes and routes output to another node, the output is delivered as a new message in the target node. The target node does **not** auto-run. The user triggers the next send manually.
+- **Loop route** (`loop_node_id`): auto-execute. When a node detects `NO_GO`, the loop target is automatically run with the routed message as input. This is the one permitted auto-execution in this pass. Without it, the build→review→build cycle requires manual intervention at every step, which defeats the purpose.
+
+This resolves the conflict with the earlier "message delivery only" scope: that rule applies to output routes. Loop-back is a narrow, deliberate exception.
+
+### GO / NO_GO strict sentinel
+
+When a node has a `loop_node_id` set, the system checks the final non-empty line of the assistant response after trimming whitespace:
+
+- If the final line is exactly `GO` (case-insensitive): route to `output_node_id` (message delivery, no auto-run of target)
+- If the final line is exactly `NO_GO` (case-insensitive): route to `loop_node_id` and auto-run target
+- If neither sentinel is present: stop auto-routing, set node status to `needs_attention`, and record an error note like "Looped node did not end with GO or NO_GO"
+- If `loop_count >= max_loops`: stop looping regardless of sentinel, route to `output_node_id`, set node status to `needs_attention`
+
+The instruction file or system prompt for any looped node **must** tell the agent to always end its response with `GO` or `NO_GO`. This is the agent's contract with the routing system. It is not inferred, guessed, or parsed from prose.
+
+### Input / Output / Loop are three separate concepts
+
+Each chat node has three distinct relationships to other nodes:
+
+| Relationship | Storage | Meaning | Trigger |
+|---|---|---|---|
+| Input from | Derived in UI/state, not a single persisted FK | Informational: which upstream node(s) feed this one | Derived from output/loop relationships and recent provenance |
+| Output to | `output_node_id` | Where to deliver output when GO or no loop is set | Message delivery; target does not auto-run |
+| Loop to | `loop_node_id` | Where to send back on NO_GO | Message delivery + auto-run of loop target |
+
+These are shown as three separate visible elements in the UI, not one combined "route" dropdown.
+
+`Input from` should be derived for display, not stored as a single FK on `ChatNode`. A node may have more than one inbound relationship over time, so the UI should render the current upstream source(s) from:
+- configured output/loop relationships pointing at this node
+- recent imported/auto-routed message provenance
+
+For Pass 2, it is acceptable to show:
+- a single "Input from" label when there is one clear upstream source
+- multiple compact source chips when more than one node currently feeds this node
+
+### Codex CLI is not a PTY-only defer
+
+`codex exec -` is the correct non-interactive invocation. The prompt is read from stdin when `-` is passed. The seeded Codex CLI agent command must be changed from `codex` to `codex exec -`.
+
+### Built-in agent commands should not pin model versions
+
+The default seeded agent should not hardcode a model version because:
+- Model IDs go stale as new versions are released
+- The CLI default tracks the recommended model as the CLI is updated
+- Pinning requires a DB migration every time a new model is released
+
+Required rule:
+- always seed one default unpinned Claude agent that follows the CLI default
+
+Permitted optional rule:
+- add pinned variants only if you intentionally want explicit model presets exposed in the UI
+
+Minimum builtins:
+- Claude: `claude --dangerously-skip-permissions` (no `--model` flag)
+- Codex: `codex exec -`
+- Gemini: `gemini` (subject to env config)
+
+If pinned variants are kept, they must be treated as optional named presets, not as the only Claude options. Power users can also create a custom agent with an explicit `--model` flag.
+
+### Gemini CLI needs environment configuration, not API key entry
+
+The `gemini` CLI requires `GEMINI_API_KEY` to be set in the shell environment. This is not something ChatMasala manages. The settings page should:
+- Detect whether `GEMINI_API_KEY` is present in `os.environ`
+- Show "CLI detected — not configured. Set GEMINI_API_KEY in your shell environment." if missing
+- Show "CLI detected — configured." if present
+- Not prompt users to paste keys into the app
+
+### New workspace: immediate-entry flow
+
+Clicking "+ New Workspace" should immediately create an untitled workspace with one default node and redirect the user to it. No form-first interruption. Title defaults to "New Workspace" and is editable inline on the workspace page. Workspace path is optional — nodes without a path run the CLI without a working directory.
+
+### Visual direction: light theme
+
+The mockup uses a white/near-white background with dark text and clean spacing. The current dark theme does not match the intended product feel. The light theme switch is a Pass 2 goal but should happen after structural changes are complete (Phase 12).
+
+---
+
+## Pass 2 — Proposed Phases
+
+- [ ] Phase 9 — Core Workspace Usability
+- [ ] Phase 10 — Loop / Routing Model
+- [ ] Phase 11 — Provider, Agent, and Settings Cleanup
+- [ ] Phase 12 — Visual Polish and Light Theme
+
+---
+
+## Phase 9 — Core Workspace Usability
+
+**Purpose:** fix the usability gaps that make the current workspace difficult to use, regardless of routing or visual direction.
+
+### Likely files
+
+- `app/templates/workspace_detail.html`
+- `app/templates/workspace_new.html`
+- `app/templates/base.html`
+- `app/routes/workspaces.py`
+- `app/static/main.css`
+
+### Required outcomes
+
+#### Workflow strip
+
+- [ ] Workflow strip never wraps to a second line. It stays on one horizontal row and scrolls horizontally when nodes overflow. Apply `flex-wrap: nowrap; overflow-x: auto` on the strip container.
+- [ ] Workflow node chips show a numbered circle (①②③④ etc.) as the primary visual identifier, not just the node name.
+
+#### Chat panels
+
+- [ ] Chat panels have a fixed `min-width` of approximately 380px and `flex-shrink: 0`. They do not compress when there are many nodes.
+- [ ] The panel container scrolls horizontally. Only 2–3 panels are visible at once on a standard screen; the rest are reachable by scrolling.
+- [ ] Panel layout order top to bottom: node name → Input from (if set) → Output to dropdown → Loop to dropdown (if loop is configured) → message transcript → composer input → Agent picker → action buttons (Reset, Import, Delete).
+
+#### Composer / input
+
+- [ ] The message textarea auto-grows as the user types. It starts at approximately 2 lines tall and expands up to a reasonable max (e.g. 8 lines) before scrolling internally.
+- [ ] Cmd+Enter / Ctrl+Enter submits the message. Enter alone inserts a newline.
+
+#### Running state
+
+- [ ] When a node's status is `running`, the panel shows a clearly visible animated indicator in the transcript area (e.g. a pulsing "Thinking…" row or a spinner). The user must be able to tell immediately that the node is active without waiting for polling to return.
+- [ ] The workflow node chip for a running node shows a distinct visual state (e.g. pulsing border or animated dot).
+
+#### Status labels
+
+- [ ] Status values are displayed as human-readable labels everywhere in the UI:
+  - `idle` → "Ready"
+  - `running` → "Running…"
+  - `needs_attention` → "Needs attention"
+
+#### New workspace flow
+
+- [ ] Clicking "+ New Workspace" in the sidebar does **not** show a form page. It immediately creates a new workspace (title: "New Workspace", no path, one default node with the default agent) and redirects to the workspace detail page.
+- [ ] The workspace title is editable inline on the workspace detail page (click to edit, Enter to save).
+- [ ] The workspace path is editable inline or via a Browse button on the workspace detail page. It is not required.
+
+#### Default node behavior
+
+- [ ] When a new node is added to a workspace, it automatically gets the first available builtin agent (Claude). It should never be created without an agent if any builtins exist.
+- [ ] When a new node is added and the workspace already has at least one other node, the previous node's `output_node_id` is automatically set to point to the new node. This can be changed but should be the default.
+
+#### Sidebar persistence
+
+- [ ] The workspace sidebar (list of recent workspaces) is visible on all pages: workspace list, workspace detail, workspace new (if kept), and settings.
+- [ ] The settings page has a visible "Back to Workspace" button or link in the header when navigated to from a workspace.
+
+### Risks / gotchas
+
+- Do not break the existing send/route/reset functionality while refactoring the layout.
+- The auto-grow textarea must not conflict with Cmd+Enter submit.
+- Running state feedback relies on polling. The current meta-refresh approach may need a shorter poll interval (e.g. 3–5 seconds) on the workspace detail page while any node is `running`.
+
+---
+
+## Phase 10 — Loop / Routing Model
+
+**Purpose:** replace the single `downstream_node_id` with three separate relationships (input, output, loop), implement GO/NO_GO sentinel detection, and wire up loop auto-execution.
+
+### Likely files
+
+- `app/models.py` (ChatNode schema change)
+- `app/routes/workspaces.py` (`_execute_node_send`, `_deliver_auto_route`, new `_execute_loop_send`)
+- `app/templates/workspace_detail.html` (three separate relationship controls)
+- `tests/test_workspace_models.py`
+
+### Data model changes
+
+Replace `downstream_node_id` on `ChatNode` with:
+
+```
+output_node_id    Integer FK(chat_nodes.id) nullable   -- where to route on GO or unconditionally
+loop_node_id      Integer FK(chat_nodes.id) nullable   -- where to loop back on NO_GO
+max_loops         Integer default 3                    -- circuit breaker
+loop_count        Integer default 0                    -- current loop iteration for this conversation_version
+```
+
+Rules:
+- `output_node_id` and `loop_node_id` may be the same node or different nodes.
+- `loop_count` resets to 0 when `conversation_version` increments (i.e. on reset).
+- A node with no `loop_node_id` behaves exactly as before — no sentinel detection, output is delivered to `output_node_id` on completion (message delivery only, no auto-run of target).
+- A node with `loop_node_id` set enables sentinel detection and loop auto-execution.
+- `Input from` is a derived display concept and should not be stored as a single `input_node_id` field on `ChatNode`.
+
+A clean DB reset is acceptable to apply this schema change. Do not add a migration framework.
+
+### Required outcomes
+
+#### Data model
+
+- [ ] `ChatNode` has `output_node_id`, `loop_node_id`, `max_loops`, and `loop_count` fields.
+- [ ] `downstream_node_id` is removed.
+- [ ] Workspace isolation checks are updated to use the new field names.
+- [ ] Inbound route cleanup on node deletion covers all new route FKs.
+- [ ] Tests cover the new schema.
+
+#### GO / NO_GO detection
+
+- [ ] After a node with `loop_node_id` set completes a send, the final non-empty trimmed line of the assistant response is checked.
+- [ ] Exact match `GO` (case-insensitive) → route output to `output_node_id` as a delivered message (no auto-run of target).
+- [ ] Exact match `NO_GO` (case-insensitive) → increment `loop_count`; if `loop_count >= max_loops`, route to `output_node_id` and set node to `needs_attention` with an error note "Max loops reached"; otherwise deliver to `loop_node_id` and auto-run the loop target.
+- [ ] Neither sentinel present and `loop_node_id` is set → do not auto-route; set node to `needs_attention` with an error note like "Looped node did not end with GO or NO_GO".
+- [ ] Node with no `loop_node_id` → no sentinel detection; route output to `output_node_id` unconditionally (message delivery, no auto-run).
+
+#### Loop auto-execution
+
+- [ ] When the loop target receives the routed message, the loop target node is automatically run (as if the user pressed Send with the routed content as the new user message). This is the only permitted auto-execution in this pass.
+- [ ] Loop auto-execution respects the same guards as manual sends: node must not already be `running`, must have an agent assigned.
+- [ ] If the loop target has no agent, delivery still happens but auto-run does not; node status is set to `needs_attention`.
+
+#### UI
+
+- [ ] Each chat panel shows three separate relationship controls:
+  - **Input from:** read-only label or chips showing which node(s) currently feed this one (or "—" if none)
+  - **Output to:** dropdown to select `output_node_id` (options: No output, [other nodes])
+  - **Loop to:** dropdown to select `loop_node_id` (options: No loop, [other nodes]) + a `Max loops` number input (only shown when a loop target is selected)
+- [ ] The workflow strip shows a visual loop indicator around nodes that form a loop (orange dashed border enclosing all nodes between `loop_node_id` source and target, with a "Loop max: N" badge).
+- [ ] When `loop_count > 0` on a running loop, the badge updates to show "Loop N/max".
+
+### Risks / gotchas
+
+- Loop auto-execution must use its own DB session (background task pattern), same as manual sends.
+- DO NOT auto-run the output target. Only the loop target auto-runs.
+- Changing `loop_node_id` or `output_node_id` affects future sends only. It does not retroactively affect a currently running send.
+- Prevent infinite loops: the `max_loops` circuit breaker is mandatory and must be checked before each loop-back.
+- Workspace isolation checks must cover all three new FK fields (`output_node_id`, `loop_node_id`) in `set_node_route` equivalents and `_deliver_auto_route` equivalents.
+
+#### Edge case: GO with no output_node_id
+
+- If a node ends with `GO` and `output_node_id` is `None`: do not error. Stop on the current node, set status to `idle`, do not deliver any message. The workflow simply ends at this node.
+- If `loop_count >= max_loops` (circuit breaker fires) and `output_node_id` is `None`: same — set status to `needs_attention` with error note "Max loops reached — no output node configured", do not deliver any message. The user must manually inspect the node and configure an output or reset.
+
+#### Edge case: loop target already running
+
+- Before auto-executing the loop target, check `target_node.status == "running"`.
+- If the loop target is already running: deliver the message to its transcript (so it appears in context) but do **not** trigger auto-run.
+- Set the **source** node's status to `needs_attention` with error note: "Loop target is already running — manual retry required once it finishes."
+- Do not silently drop the message or silently skip the auto-run without a visible error state.
+
+---
+
+## Phase 11 — Provider, Agent, and Settings Cleanup
+
+**Purpose:** fix provider commands, agent defaults, and the settings navigation so the app works correctly for real users out of the box.
+
+### Likely files
+
+- `app/db.py` (seed data)
+- `app/routes/settings.py`
+- `app/templates/settings.html`
+- `app/templates/base.html`
+- `app/routes/workspaces.py` (default agent on new node)
+
+### Required outcomes
+
+#### Seeded builtin agents
+
+- [ ] Seeded builtins are updated to follow one consistent rule:
+  - **Required defaults:**
+    - **Claude** (default): command `claude --dangerously-skip-permissions` — no `--model` flag. Name: "Claude".
+    - **Codex**: command `codex exec -`. Name: "Codex".
+    - **Gemini**: command `gemini`. Name: "Gemini CLI".
+  - **Optional pinned variants:** only include explicit Sonnet / Opus / Haiku presets if you intentionally want them exposed as separate choices in the UI. If included, they are additional presets, not replacements for the default unpinned Claude agent.
+- [ ] The default agent for new nodes is "Claude" (the no-model-pinned builtin).
+
+#### Provider status
+
+- [ ] The CLI Providers section in settings detects:
+  - Binary presence on PATH (`shutil.which`)
+  - For Gemini CLI specifically: whether `GEMINI_API_KEY` is set in `os.environ`
+- [ ] Provider status labels:
+  - Binary on PATH + (Gemini: env var set or non-Gemini): show "Connected ✓" in green
+  - Binary on PATH + Gemini env var missing: show "CLI detected — not configured. Set GEMINI_API_KEY in your shell environment." in amber
+  - Binary not on PATH: show "Not detected" in grey
+- [ ] After a successful "Test Connection" (exit code 0), the provider card updates to show "Connected ✓".
+- [ ] After a failed "Test Connection" (non-zero exit or error), the card shows "Error — see output below" in red.
+
+#### Settings navigation
+
+- [ ] The settings page always shows the workspace sidebar (list of recent workspaces).
+- [ ] If the user navigated to settings from a workspace, a "← Back to [workspace name]" link or button is shown in the settings header.
+- [ ] The settings page layout uses a tab structure: `CLI Providers` | `Built-in Agents` | `Custom Agents`.
+
+#### Custom agent creation
+
+- [ ] The "New Custom Agent" flow uses a modal or inline form (not a separate page navigation), consistent with the mockup in `tmp/Multi-Chat Workflow Builder/screeenshots/`.
+- [ ] The modal asks for: Agent Name (required) + Description/purpose (optional). Advanced fields (command template, instruction file) are collapsed behind an "Advanced" disclosure by default.
+- [ ] The modal also asks for a provider preset (Claude / Codex / Gemini / Custom). Choosing a provider preset auto-fills the command template in Advanced.
+- [ ] If no provider preset is chosen and no advanced command is supplied, save is blocked with a clear validation error.
+
+#### Codex non-interactive mode
+
+- [ ] The seeded Codex command is `codex exec -` (not `codex`). This uses Codex's built-in non-interactive mode where the prompt is read from stdin.
+- [ ] A note is visible in the Codex provider card: "Uses `codex exec -` for non-interactive execution."
+
+### Risks / gotchas
+
+- If the DB already has old seeded builtins, the seed function must update existing rows by `builtin_key`, not just skip if they exist.
+- Do not prompt users to paste API keys into the app. Env var detection only.
+- The "Back to workspace" button requires passing the referring workspace ID through the settings navigation (e.g. via a `?from=ws_id` query param or by reading the referrer).
+
+---
+
+## Phase 12 — Visual Polish and Light Theme
+
+**Purpose:** move the visual direction from dark dev-tool toward the airy, calm workspace shown in the mockups.
+
+> Do this phase last. Structural and routing changes in Phases 9–11 will modify the same templates. Restyling before structure is finalised wastes effort.
+
+### Likely files
+
+- `app/static/main.css`
+- `app/templates/base.html`
+- `app/templates/workspace_detail.html`
+- `app/templates/workspace_list.html`
+- `app/templates/settings.html`
+
+### Required outcomes
+
+#### Light theme
+
+- [ ] The app uses a light background (white or very light grey, e.g. `#f9fafb`) with dark text (`#111827` or similar) as the default.
+- [ ] The current dark theme CSS variables are replaced or overridden with light theme values.
+- [ ] The sidebar uses a slightly darker panel (e.g. `#f3f4f6`) to distinguish it from the main content area.
+- [ ] Chat panels use a white card background with a subtle border and shadow.
+- [ ] User messages use the accent colour (indigo/violet, matching the mockup) as bubble background.
+- [ ] Assistant messages use a light grey bubble.
+
+#### Workflow strip
+
+- [ ] Node chips in the workflow strip use the clean card style from the mockup: white background, 1px border, rounded corners, bold numbered circle, node name, agent name, status badge.
+- [ ] Route arrows (`→`) between chips are simple, not heavy.
+- [ ] Loop group is enclosed in an orange dashed border with a "Loop Max: N" orange pill badge at the top of the group.
+
+#### Chat panels
+
+- [ ] Panel headers are clean: node name (large, editable on click) + status badge aligned right.
+- [ ] The "Input from", "Output to", and "Loop to" controls are clearly labelled and visually grouped below the header.
+- [ ] The transcript area is well-padded and readable.
+- [ ] The composer area at the bottom is clearly delineated: input grows with text, send button is prominent, agent picker is below or alongside the input.
+
+#### Settings
+
+- [ ] Settings page feels minimal and information-dense in a good way. Tabs are clean pill-style toggles as in the mockup.
+- [ ] CLI provider cards are clean rows: provider name, status badge (Connected ✓ / Not detected), command input, Test Connection button.
+- [ ] Agent list items are clean rows: agent name, ID/key, no raw internals visible at first glance.
+
+#### Typography and spacing
+
+- [ ] Use Inter for UI chrome and JetBrains Mono for code/command/path values (already linked in base.html — verify it is being applied).
+- [ ] Consistent spacing scale throughout: 4px base unit, sections at 16–24px gap.
+- [ ] No hard-coded pixel colours — use CSS custom properties throughout so future theme changes are a single-variable edit.
+
+### Risks / gotchas
+
+- Keep a dark-mode fallback in CSS custom property structure so dark theme can be re-enabled with a media query in future. Do not hard-delete the dark design tokens; replace them.
+- Test on a standard 1440px wide screen and a 1280px wide screen. Panels should scroll, not compress.
+
+---
+
+## Pass 2 — Deferred Backlog
+
+These items were explicitly agreed as out of scope for Pass 2. They must be reviewed at the start of Pass 3 planning and promoted or re-deferred.
+
+### Routing / Graph
+
+- **Multi-output routing** — each node routes to more than one downstream node simultaneously. Important for the long-term routing app model but too much structural change for now.
+- **Auto-run chains** — when output is routed, the target node auto-executes without a user trigger. Only loop-back auto-runs in this pass.
+- **Import last N messages** — currently only the last assistant message can be imported. Import of a selectable range is deferred.
+- **Richer flow arrows / canvas routing** — visual connectors between nodes on a canvas. The current chip+arrow strip is the interim solution.
+- **Drag-and-drop node reordering** — desirable but not first priority.
+
+### Node types
+
+- **Orchestrator node** — a node that manages routing decisions for other nodes.
+- **Scribe node** — a node that accumulates global context across the workspace.
+
+### Platform
+
+- **Codex TTY / persistent sessions** — if Codex requires a live session rather than per-send invocation, a PTY wrapper would be needed. `codex exec -` should work for now; revisit if it still fails.
+- **Browser extension / MCP intake**
+- **Inbox / idea revival**
+- **Electron migration**
+- **Cloud or multi-user features**
+
+### Settings / Agents
+
+- **AI-assisted custom agent creation** — user describes the agent they want in natural language; a helper agent generates the instruction file and config draft; user edits only if needed. Agreed as a future phase by the user on 2026-03-17.
+- **Saved workflow templates** — save and reload a node configuration as a reusable template (mockup shows this as a "Saved Workflows" tab in settings).
+
+### Visual / UX
+
+- **Loop boundary animation** — animated dashed border or flowing arrows between looped nodes.
+- **Dark mode toggle** — re-expose dark mode as a user setting once the light theme is the default.
