@@ -3,7 +3,7 @@ import sqlite3
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./chatmasala.db")
 
@@ -34,40 +34,6 @@ def get_db():
         db.close()
 
 
-def seed_default_profiles() -> None:
-    """Create the 3 default AgentProfile rows if they don't already exist."""
-    from app.models import AgentProfile  # local import to avoid circular deps
-
-    defaults = [
-        {
-            "name": "Single Agent",
-            "provider": "claude",
-            "command_template": "claude --dangerously-skip-permissions",
-            "instruction_file": "profiles/agents/single-agent.md",
-        },
-        {
-            "name": "Builder",
-            "provider": "claude",
-            "command_template": "claude --dangerously-skip-permissions",
-            "instruction_file": "profiles/agents/builder.md",
-        },
-        {
-            "name": "Reviewer",
-            "provider": "claude",
-            "command_template": "claude --dangerously-skip-permissions",
-            "instruction_file": "profiles/agents/reviewer.md",
-        },
-    ]
-    db = SessionLocal()
-    try:
-        for profile_data in defaults:
-            existing = db.query(AgentProfile).filter(AgentProfile.name == profile_data["name"]).first()
-            if not existing:
-                db.add(AgentProfile(**profile_data))
-        db.commit()
-    finally:
-        db.close()
-
 
 BUILTIN_AGENTS = [
     {
@@ -75,7 +41,6 @@ BUILTIN_AGENTS = [
         "name": "Claude",
         "provider": "claude",
         "command_template": "claude --dangerously-skip-permissions",
-        "instruction_file": "",
         "is_builtin": True,
         "sort_order": 0,
     },
@@ -84,7 +49,6 @@ BUILTIN_AGENTS = [
         "name": "Codex",
         "provider": "codex",
         "command_template": "codex exec -",
-        "instruction_file": "",
         "is_builtin": True,
         "sort_order": 1,
     },
@@ -93,10 +57,21 @@ BUILTIN_AGENTS = [
         "name": "Gemini CLI",
         "provider": "gemini",
         "command_template": "gemini",
-        "instruction_file": "",
         "is_builtin": True,
         "sort_order": 2,
     },
+]
+
+BUILTIN_ROLES = [
+    {"slug": "brainstorm-a",  "name": "Brainstorm A",  "sort_order": 0, "description": "First-pass ideation: options, angles, tradeoffs.",        "instruction_file": "profiles/agents/brainstorm-a.md"},
+    {"slug": "brainstorm-b",  "name": "Brainstorm B",  "sort_order": 1, "description": "Second-pass ideation: distinct direction from Brainstorm A.", "instruction_file": "profiles/agents/brainstorm-b.md"},
+    {"slug": "critic",        "name": "Critic",         "sort_order": 2, "description": "Stress-tests proposals and finds weak assumptions.",         "instruction_file": "profiles/agents/critic.md"},
+    {"slug": "decider",       "name": "Decider",        "sort_order": 3, "description": "Decides GO/NO_GO after brainstorm and critique.",            "instruction_file": "profiles/agents/decider.md"},
+    {"slug": "planner",       "name": "Planner",        "sort_order": 4, "description": "Turns accepted ideas into a phased implementation plan.",    "instruction_file": "profiles/agents/planner.md"},
+    {"slug": "builder",       "name": "Builder",        "sort_order": 5, "description": "Implements approved work. Writes code and edits files.",      "instruction_file": "profiles/agents/builder-v2.md"},
+    {"slug": "reviewer",      "name": "Reviewer",       "sort_order": 6, "description": "Reviews implementation for bugs and correctness.",           "instruction_file": "profiles/agents/reviewer-v2.md"},
+    {"slug": "human-gate",    "name": "Human Gate",     "sort_order": 7, "description": "Pauses the workflow and waits for human direction.",         "instruction_file": "profiles/agents/human-gate.md"},
+    {"slug": "repo-context",  "name": "Repo Context",   "sort_order": 8, "description": "Inspects the repository and explains the architecture.",     "instruction_file": "profiles/agents/repo-context.md"},
 ]
 
 
@@ -126,11 +101,39 @@ def seed_builtin_agents() -> None:
         db.close()
 
 
+def seed_builtin_roles(db: Session) -> None:
+    from app.models import AgentRole  # local import to avoid circular deps
+
+    for role_data in BUILTIN_ROLES:
+        existing = db.query(AgentRole).filter(AgentRole.slug == role_data["slug"]).first()
+        if existing:
+            existing.name = role_data["name"]
+            existing.description = role_data["description"]
+            existing.instruction_file = role_data["instruction_file"]
+            existing.sort_order = role_data["sort_order"]
+            existing.is_builtin = True
+        else:
+            role = AgentRole(
+                slug=role_data["slug"],
+                name=role_data["name"],
+                description=role_data["description"],
+                instruction_file=role_data["instruction_file"],
+                is_builtin=True,
+                sort_order=role_data["sort_order"],
+            )
+            db.add(role)
+    db.commit()
+
+
 def init_db():
     """Drop all tables and recreate them, then seed default data."""
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
-    seed_default_profiles()
     seed_builtin_agents()
+    db = SessionLocal()
+    try:
+        seed_builtin_roles(db)
+    finally:
+        db.close()
 
 

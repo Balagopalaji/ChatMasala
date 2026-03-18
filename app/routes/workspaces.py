@@ -1,7 +1,10 @@
 """Workspace routes — list, create, detail, node management."""
+import logging
 import os
 import threading
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -10,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.agents.cli_runner import run_agent
 from app.db import get_db
-from app.models import AgentProfile, ChatNode, ChatMessage, Workspace
+from app.models import AgentProfile, AgentRole, ChatNode, ChatMessage, Workspace
 
 router = APIRouter()
 BASE_DIR = Path(__file__).parent.parent
@@ -98,6 +101,7 @@ async def workspace_detail(ws_id: int, request: Request, db: Session = Depends(g
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
     profiles = db.query(AgentProfile).order_by(AgentProfile.sort_order, AgentProfile.name).all()
+    roles = db.query(AgentRole).order_by(AgentRole.sort_order, AgentRole.name).all()
     all_workspaces = db.query(Workspace).order_by(Workspace.updated_at.desc()).all()
     node_names = {n.id: n.name for n in ws.nodes}
 
@@ -124,6 +128,7 @@ async def workspace_detail(ws_id: int, request: Request, db: Session = Depends(g
     return templates.TemplateResponse(request, "workspace_detail.html", {
         "workspace": ws,
         "profiles": profiles,
+        "roles": roles,
         "all_workspaces": all_workspaces,
         "node_names": node_names,
         "loop_groups": loop_groups,
@@ -251,6 +256,25 @@ def set_node_agent(
     except ValueError:
         pid = None
     node.agent_profile_id = pid
+    db.commit()
+    return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
+
+
+@router.post("/workspaces/{ws_id}/nodes/{node_id}/role")
+def set_node_role(
+    ws_id: int,
+    node_id: int,
+    agent_role_id: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    node = db.query(ChatNode).filter(ChatNode.id == node_id, ChatNode.workspace_id == ws_id).first()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    try:
+        rid = int(agent_role_id) if agent_role_id else None
+    except ValueError:
+        rid = None
+    node.agent_role_id = rid or None
     db.commit()
     return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
 
@@ -514,6 +538,18 @@ def _execute_node_send(node_id: int, asst_msg_id: int, output_node_id, loop_node
         prompt_parts.append(f"{role_label}: {m.content}")
     prompt_text = "\n\n".join(prompt_parts)
     asst_msg.prompt_text = prompt_text
+
+    # Load role instructions if a role is assigned
+    role_instructions = ""
+    if node.agent_role_id and node.agent_role and node.agent_role.instruction_file:
+        role_path = Path(node.agent_role.instruction_file)
+        if role_path.is_file():
+            role_instructions = role_path.read_text()
+        else:
+            logger.warning(f"Role instruction file not found: {node.agent_role.instruction_file}")
+
+    if role_instructions:
+        prompt_text = role_instructions + "\n\n" + prompt_text
 
     raw_path = node.workspace.workspace_path if node.workspace else None
     workspace_path = raw_path if raw_path else _get_workspace_sandbox(node.workspace_id)

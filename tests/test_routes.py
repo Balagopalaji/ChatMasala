@@ -95,7 +95,6 @@ def _make_profile(db):
         name="Test Agent",
         provider="claude",
         command_template="echo done",
-        instruction_file="profiles/agents/single-agent.md",
     )
     db.add(profile)
     db.commit()
@@ -250,34 +249,6 @@ def test_settings_page_shows_profiles(client):
     assert response.status_code == 200
 
 
-def test_new_profile_form(client):
-    response = client.get("/settings/profiles/new")
-    assert response.status_code == 200
-
-
-def test_create_profile_missing_instruction_file(client, tmp_path):
-    response = client.post("/settings/profiles/new", data={
-        "name": "Test",
-        "provider": "claude",
-        "command_template": "claude",
-        "instruction_file": "/nonexistent/path/file.md",
-    })
-    assert response.status_code == 200
-    assert "not found" in response.text.lower()
-
-
-def test_create_profile_success(client, tmp_path):
-    # Create a real instruction file
-    f = tmp_path / "agent.md"
-    f.write_text("# Instructions")
-    response = client.post("/settings/profiles/new", data={
-        "name": "My Agent",
-        "provider": "claude",
-        "command_template": "claude",
-        "instruction_file": str(f),
-    })
-    assert response.status_code in (200, 303)
-
 
 # ---------------------------------------------------------------------------
 # Phase 3: Run Creation UX tests
@@ -365,13 +336,11 @@ def test_create_run_builder_reviewer_with_loop(client_and_db):
         name="Builder",
         provider="claude",
         command_template="echo done",
-        instruction_file="profiles/agents/single-agent.md",
     )
     reviewer = AgentProfile(
         name="Reviewer",
         provider="claude",
         command_template="echo done",
-        instruction_file="profiles/agents/single-agent.md",
     )
     db.add(builder)
     db.add(reviewer)
@@ -402,13 +371,11 @@ def test_create_run_loop_disabled_when_not_sent(client_and_db):
         name="Builder",
         provider="claude",
         command_template="echo done",
-        instruction_file="profiles/agents/single-agent.md",
     )
     reviewer = AgentProfile(
         name="Reviewer",
         provider="claude",
         command_template="echo done",
-        instruction_file="profiles/agents/single-agent.md",
     )
     db.add(builder)
     db.add(reviewer)
@@ -557,7 +524,6 @@ def test_create_run_single_agent_with_valid_profile(client_and_db):
         name="Validation Test Agent",
         provider="claude",
         command_template="echo done",
-        instruction_file="profiles/agents/single-agent.md",
     )
     db.add(profile)
     db.commit()
@@ -591,7 +557,6 @@ def _make_builtin_agent(db):
         name="Claude Sonnet",
         provider="claude",
         command_template="claude --model claude-sonnet-4-5",
-        instruction_file="",
         is_builtin=True,
         builtin_key="claude_sonnet",
         sort_order=1,
@@ -865,7 +830,6 @@ def test_new_workspace_default_is_claude_default(client_and_db):
         name="Claude",
         provider="claude",
         command_template="claude --dangerously-skip-permissions",
-        instruction_file="",
         is_builtin=True,
         builtin_key="claude_default",
         sort_order=0,

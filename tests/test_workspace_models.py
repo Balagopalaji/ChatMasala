@@ -203,7 +203,6 @@ def test_nonzero_exit_marks_failed(db):
     profile = AgentProfile(
         name="TestCLI", provider="test",
         command_template="false",  # always exits 1
-        instruction_file="",
     )
     db.add(profile)
     db.commit()
@@ -321,7 +320,7 @@ def test_go_sentinel_routes_to_output_node(db):
     db.add(ws)
     db.commit()
 
-    profile = AgentProfile(name="P", provider="test", command_template="echo", instruction_file="")
+    profile = AgentProfile(name="P", provider="test", command_template="echo")
     db.add(profile)
     db.commit()
 
@@ -369,7 +368,7 @@ def test_no_go_sentinel_loops_back(db):
     db.add(ws)
     db.commit()
 
-    profile = AgentProfile(name="P2", provider="test", command_template="echo", instruction_file="")
+    profile = AgentProfile(name="P2", provider="test", command_template="echo")
     db.add(profile)
     db.commit()
 
@@ -422,7 +421,7 @@ def test_no_go_max_loops_reached(db):
     db.add(ws)
     db.commit()
 
-    profile = AgentProfile(name="P3", provider="test", command_template="echo", instruction_file="")
+    profile = AgentProfile(name="P3", provider="test", command_template="echo")
     db.add(profile)
     db.commit()
 
@@ -470,7 +469,7 @@ def test_neither_sentinel_loops_back(db):
     db.add(ws)
     db.commit()
 
-    profile = AgentProfile(name="P4", provider="test", command_template="echo", instruction_file="")
+    profile = AgentProfile(name="P4", provider="test", command_template="echo")
     db.add(profile)
     db.commit()
 
@@ -516,7 +515,7 @@ def test_no_loop_node_routes_unconditionally(db):
     db.add(ws)
     db.commit()
 
-    profile = AgentProfile(name="P5", provider="test", command_template="echo", instruction_file="")
+    profile = AgentProfile(name="P5", provider="test", command_template="echo")
     db.add(profile)
     db.commit()
 
@@ -583,7 +582,7 @@ def test_deliver_auto_route_triggers_auto_run_on_target(db):
     db.add(ws)
     db.commit()
 
-    profile = AgentProfile(name="P", provider="test", command_template="echo", instruction_file="")
+    profile = AgentProfile(name="P", provider="test", command_template="echo")
     db.add(profile)
     db.commit()
 
@@ -626,7 +625,7 @@ def test_deliver_auto_route_no_auto_run_when_target_running(db):
     db.add(ws)
     db.commit()
 
-    profile = AgentProfile(name="P2", provider="test", command_template="echo", instruction_file="")
+    profile = AgentProfile(name="P2", provider="test", command_template="echo")
     db.add(profile)
     db.commit()
 
@@ -702,7 +701,7 @@ def test_no_loop_output_route_triggers_auto_run(db):
     db.add(ws)
     db.commit()
 
-    profile = AgentProfile(name="P6", provider="test", command_template="echo", instruction_file="")
+    profile = AgentProfile(name="P6", provider="test", command_template="echo")
     db.add(profile)
     db.commit()
 
@@ -767,7 +766,7 @@ def test_import_last_message_auto_run_via_background_task(tmp_path):
     db.add(ws)
     db.commit()
 
-    profile = AgentProfile(name="PA", provider="test", command_template="echo", instruction_file="")
+    profile = AgentProfile(name="PA", provider="test", command_template="echo")
     db.add(profile)
     db.commit()
 
@@ -837,7 +836,7 @@ def test_import_last_message_no_auto_run_when_running(tmp_path):
     db.add(ws)
     db.commit()
 
-    profile = AgentProfile(name="PB", provider="test", command_template="echo", instruction_file="")
+    profile = AgentProfile(name="PB", provider="test", command_template="echo")
     db.add(profile)
     db.commit()
 

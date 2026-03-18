@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
-from app.models import AgentProfile, Run, Turn, UserNote
+from app.models import AgentProfile, AgentRole, ChatNode, Run, Turn, UserNote, Workspace
 
 
 @pytest.fixture(scope="function")
@@ -226,7 +226,6 @@ def test_agent_profile_creation(db_session):
         name="Test Builder",
         provider="claude",
         command_template="claude --dangerously-skip-permissions",
-        instruction_file="profiles/agents/builder.md",
     )
     db_session.add(profile)
     db_session.commit()
@@ -237,11 +236,75 @@ def test_agent_profile_creation(db_session):
 
 
 def test_agent_profile_name_unique(db_session):
-    p1 = AgentProfile(name="Unique", provider="claude", command_template="cmd", instruction_file="f.md")
-    p2 = AgentProfile(name="Unique", provider="claude", command_template="cmd2", instruction_file="f2.md")
+    p1 = AgentProfile(name="Unique", provider="claude", command_template="cmd")
+    p2 = AgentProfile(name="Unique", provider="claude", command_template="cmd2")
     db_session.add(p1)
     db_session.commit()
     db_session.add(p2)
     import pytest
     with pytest.raises(Exception):
         db_session.commit()
+
+
+# ---------------------------------------------------------------------------
+# AgentRole tests
+# ---------------------------------------------------------------------------
+
+
+def test_agent_role_create(db_session):
+    """AgentRole can be created and loaded back from the database."""
+    role = AgentRole(
+        slug="builder",
+        name="Builder",
+        description="Implements approved work.",
+        instruction_file="profiles/agents/builder-v2.md",
+        is_builtin=True,
+        sort_order=5,
+    )
+    db_session.add(role)
+    db_session.commit()
+    db_session.refresh(role)
+
+    queried = db_session.query(AgentRole).filter_by(slug="builder").one()
+    assert queried.id is not None
+    assert queried.slug == "builder"
+    assert queried.name == "Builder"
+    assert queried.description == "Implements approved work."
+    assert queried.instruction_file == "profiles/agents/builder-v2.md"
+    assert queried.is_builtin is True
+    assert queried.sort_order == 5
+
+
+def test_agent_role_slug_unique(db_session):
+    """Two AgentRole rows with the same slug should raise an IntegrityError."""
+    r1 = AgentRole(slug="critic", name="Critic A", instruction_file="f.md")
+    r2 = AgentRole(slug="critic", name="Critic B", instruction_file="f.md")
+    db_session.add(r1)
+    db_session.commit()
+    db_session.add(r2)
+    with pytest.raises(Exception):
+        db_session.commit()
+
+
+def test_chat_node_agent_role_id(db_session):
+    """A ChatNode can have an agent_role_id assigned and the relationship loads."""
+    ws = Workspace(title="Role Test WS")
+    db_session.add(ws)
+    db_session.flush()
+
+    role = AgentRole(
+        slug="planner",
+        name="Planner",
+        instruction_file="profiles/agents/planner.md",
+    )
+    db_session.add(role)
+    db_session.flush()
+
+    node = ChatNode(workspace_id=ws.id, name="Planning Node", agent_role_id=role.id)
+    db_session.add(node)
+    db_session.commit()
+    db_session.refresh(node)
+
+    assert node.agent_role_id == role.id
+    assert node.agent_role is not None
+    assert node.agent_role.slug == "planner"

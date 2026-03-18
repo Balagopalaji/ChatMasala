@@ -22,6 +22,7 @@
   <button class="tab-btn active" id="tab-btn-providers" onclick="switchTab('providers', this)">CLI Providers</button>
   <button class="tab-btn" id="tab-btn-builtins" onclick="switchTab('builtins', this)">Built-in Agents</button>
   <button class="tab-btn" id="tab-btn-custom" onclick="switchTab('custom', this)">Custom Agents</button>
+  <button class="tab-btn" id="tab-btn-roles" onclick="switchTab('roles', this)">Roles</button>
 </div>
 
 <!-- Tab: CLI Providers -->
@@ -131,6 +132,98 @@
   {% else %}
   <p class="empty-state">No custom agents yet. Click "+ New Custom Agent" to create one.</p>
   {% endif %}
+</div>
+
+<!-- Tab: Roles -->
+<div class="tab-panel" id="tab-roles" style="display:none">
+
+  <!-- Built-in Roles -->
+  <h3 style="font-size:14px;font-weight:600;margin:0 0 8px">Built-in Roles</h3>
+  <p class="settings-section-desc" style="margin-bottom:12px">Pre-defined roles with fixed instruction files. These are read-only.</p>
+  {% if builtin_roles %}
+  <table class="agents-table" style="margin-bottom:28px">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Description</th>
+        <th>Instruction File</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for role in builtin_roles %}
+      <tr>
+        <td><strong>{{ role.name }}</strong></td>
+        <td style="color:#475569;font-size:13px">{{ role.description or "—" }}</td>
+        <td><code style="font-size:12px">{{ role.instruction_file }}</code></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state" style="margin-bottom:28px">No built-in roles seeded yet.</p>
+  {% endif %}
+
+  <!-- Custom Roles -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <h3 style="font-size:14px;font-weight:600;margin:0">Custom Roles</h3>
+    <button type="button" class="btn btn-primary btn-sm" onclick="openRoleModal()">+ New Custom Role</button>
+  </div>
+  {% if custom_roles %}
+  <table class="agents-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Description</th>
+        <th>Instruction File</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for role in custom_roles %}
+      <tr>
+        <td><strong>{{ role.name }}</strong></td>
+        <td style="color:#475569;font-size:13px">{{ role.description or "—" }}</td>
+        <td><code style="font-size:12px">{{ role.instruction_file }}</code></td>
+        <td>
+          <form method="post" action="/settings/roles/{{ role.id }}/delete"
+            onsubmit="return confirm('Delete role {{ role.name }}?')" style="display:inline">
+            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No custom roles yet. Click "+ New Custom Role" to create one.</p>
+  {% endif %}
+</div>
+
+<!-- New Custom Role Modal -->
+<div id="new-role-modal" class="modal" style="display:none">
+  <div class="modal-backdrop" onclick="closeRoleModal()"></div>
+  <div class="modal-content">
+    <h2>New Custom Role</h2>
+    <form method="post" action="/settings/roles/new" id="new-role-form">
+      <div class="form-group">
+        <label>Role Name <span style="color:#dc2626">*</span></label>
+        <input type="text" name="name" class="form-control" required placeholder="e.g. Code Reviewer">
+      </div>
+      <div class="form-group">
+        <label>Description (optional)</label>
+        <textarea name="description" class="form-control" rows="2" placeholder="What does this role do?"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Instruction File Path <span style="color:#dc2626">*</span></label>
+        <input type="text" name="instruction_file" class="form-control" required
+          placeholder="/path/to/instructions.md" style="font-family:monospace">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeRoleModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 <!-- New Custom Agent Modal -->
@@ -244,6 +337,18 @@ async function testProviderConnection(providerKey, command) {
     resultEl.style.color = '#991b1b';
     resultEl.textContent = 'Request failed: ' + e.message;
   }
+}
+
+// ---------------------------------------------------------------------------
+// New Custom Role Modal
+// ---------------------------------------------------------------------------
+function openRoleModal() {
+  document.getElementById('new-role-modal').style.display = 'flex';
+}
+
+function closeRoleModal() {
+  document.getElementById('new-role-modal').style.display = 'none';
+  document.getElementById('new-role-form').reset();
 }
 
 // ---------------------------------------------------------------------------

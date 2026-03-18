@@ -62,14 +62,14 @@ def _get_command(profile: Optional[AgentProfile]) -> str:
 
 
 def _get_instruction_text(profile: Optional[AgentProfile]) -> str:
-    """Read instruction file content from a profile. Returns empty string if unavailable."""
-    if not profile or not profile.instruction_file:
-        return ""
-    try:
-        with open(profile.instruction_file, "r") as f:
-            return f.read()
-    except (IOError, OSError):
-        return ""
+    """Instruction text is now managed via AgentRole, not AgentProfile.
+
+    This stub returns an empty string so that the builder/reviewer/single-agent
+    prompt functions still receive a valid instruction_text argument.  Role-based
+    instruction loading happens at the workspace/node level and is not part of
+    the legacy Run orchestrator.
+    """
+    return ""
 
 
 def _get_builder_command(run: Run, db: Session) -> str:

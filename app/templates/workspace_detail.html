@@ -65,7 +65,9 @@
            data-chip-index="{{ loop.index0 }}">
           <span class="node-num">{{ loop.index }}</span>
           <span class="workflow-node-chip-name">{{ node.name }}</span>
-          {% if node.agent_profile %}
+          {% if node.agent_role %}
+          <span class="workflow-node-chip-agent">{{ node.agent_role.name }}{% if node.agent_profile %} / <span style="opacity:0.7">{{ node.agent_profile.name }}</span>{% endif %}</span>
+          {% elif node.agent_profile %}
           <span class="workflow-node-chip-agent">{{ node.agent_profile.name }}</span>
           {% endif %}
           <span class="workflow-node-chip-status status-{{ node.status }}">
@@ -217,18 +219,38 @@
         <button type="submit" class="btn btn-primary btn-sm">Send</button>
       </form>
 
-      <!-- 7. Agent picker -->
+      <!-- 7. Role + Model pickers -->
       <div class="chat-panel-agent-row">
-        <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/agent"
-              id="agent-form-{{ node.id }}" style="display:contents">
-          <select name="agent_profile_id" class="agent-select-inline"
-                  data-submit-form="agent-form-{{ node.id }}">
-            <option value="">— No agent —</option>
-            {% for p in profiles %}
-            <option value="{{ p.id }}" {% if node.agent_profile_id == p.id %}selected{% endif %}>{{ p.name }}</option>
-            {% endfor %}
-          </select>
-        </form>
+        <div style="display:flex;flex-direction:column;gap:4px;width:100%">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:11px;color:var(--text-secondary);min-width:36px">Role</span>
+            <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/role"
+                  id="role-form-{{ node.id }}" style="flex:1">
+              <select name="agent_role_id" class="agent-select-inline"
+                      style="width:100%"
+                      data-submit-form="role-form-{{ node.id }}">
+                <option value="">— No role —</option>
+                {% for role in roles %}
+                <option value="{{ role.id }}" {% if node.agent_role_id == role.id %}selected{% endif %}>{{ role.name }}</option>
+                {% endfor %}
+              </select>
+            </form>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:11px;color:var(--text-secondary);min-width:36px">Model</span>
+            <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/agent"
+                  id="agent-form-{{ node.id }}" style="flex:1">
+              <select name="agent_profile_id" class="agent-select-inline"
+                      style="width:100%"
+                      data-submit-form="agent-form-{{ node.id }}">
+                <option value="">— No agent —</option>
+                {% for p in profiles %}
+                <option value="{{ p.id }}" {% if node.agent_profile_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+                {% endfor %}
+              </select>
+            </form>
+          </div>
+        </div>
       </div>
 
       <!-- 8. Action buttons: Reset, Import, Delete -->

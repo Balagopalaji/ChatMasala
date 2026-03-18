@@ -1168,3 +1168,96 @@ These items were explicitly agreed as out of scope for Pass 2. They must be revi
 
 - **Loop boundary animation** — animated dashed border or flowing arrows between looped nodes.
 - **Dark mode toggle** — re-expose dark mode as a user setting once the light theme is the default.
+
+---
+
+## Pass 3 — Agent Role / Model Split
+
+### Why this pass
+
+The current `AgentProfile` table bundles two separate concepts:
+- **Role** — the behavioral instructions for an agent (what it does, what it is forbidden to do, its output contract)
+- **Runtime/Model** — the CLI command and provider used to execute it (Claude, Codex, Gemini)
+
+This means "Brainstorm A on Claude" and "Brainstorm A on Codex" would require two separate AgentProfile rows with duplicated content. That is the wrong model.
+
+The goal of Pass 3 is a clean architecture where:
+- roles are reusable across models
+- models are reusable across roles
+- a node independently selects both
+
+### New architecture
+
+Two separate concerns:
+
+**AgentRole** — a new table. Defines what a node does:
+- name (e.g. "Brainstorm A")
+- slug (machine key, e.g. "brainstorm-a")
+- description
+- instruction_file (path to the .md file)
+- is_builtin
+
+**AgentProfile** (trimmed) — kept as runtime-only. Defines what executes it:
+- name (e.g. "Claude", "Codex")
+- provider
+- command_template
+- is_builtin
+
+**ChatNode** gains `agent_role_id` FK alongside the existing `agent_profile_id`.
+
+### Agent role library
+
+Nine built-in roles seeded from md files in `profiles/agents/`:
+- Brainstorm A
+- Brainstorm B
+- Critic
+- Decider
+- Planner
+- Builder (from builder-v2.md)
+- Reviewer (from reviewer-v2.md)
+- Human Gate
+- Repo Context
+
+### Execution change
+
+`_execute_node_send` loads the role's instruction_file content and prepends it to the prompt before conversation history. Nodes with no role assigned run bare (existing behavior unchanged).
+
+### Implementation phases
+
+Phase 1 — Data model split
+- Add AgentRole model to models.py
+- Remove instruction_file from AgentProfile
+- Add agent_role_id FK to ChatNode
+- Add BUILTIN_ROLES + seed_builtin_roles() to db.py
+- Remove seed_default_profiles()
+- DB reset
+
+Phase 2 — Execution integration
+- Load role instructions in _execute_node_send and prepend to prompt
+- Add POST /workspaces/{ws_id}/nodes/{node_id}/role route
+- Pass roles list to workspace_detail template context
+
+Phase 3 — Settings + node UI
+- Replace single agent picker in node panel with two dropdowns: Role and Model
+- Add Roles tab to settings (built-in roles read-only, custom roles manageable)
+- Remove legacy profile form routes
+
+Phase 4 — Cleanup
+- Remove seed_default_profiles() function body
+- Remove profile_form.html
+- Remove legacy /settings/profiles/* routes
+- Full test suite pass
+
+### Deferred (not in this pass)
+
+- Frontmatter control flag parsing and enforcement (can_edit_files, can_run_commands, etc.)
+- Human Gate pause/approval execution mechanic
+- Scribe and RepoPrompt Crafter role files (separate design track)
+- Template / saved workflow library
+- Multi-output routing
+
+### Keep / Drop
+
+Keep: workspace/node/message model, CLI runner, background task pattern, FastAPI structure, all existing routing logic
+
+Drop: AgentProfile.instruction_file column, seed_default_profiles(), profile_form.html, /settings/profiles/new and /settings/profiles/{id}/edit routes

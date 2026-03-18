@@ -75,6 +75,20 @@ class Settings(Base):
     value: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class AgentRole(Base):
+    __tablename__ = "agent_roles"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False, unique=True)
+    slug = Column(String, nullable=True, unique=True)        # stable machine key for built-ins
+    description = Column(Text, nullable=True)
+    instruction_file = Column(String, nullable=False)
+    is_builtin = Column(Boolean, default=False)
+    sort_order = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class AgentProfile(Base):
     __tablename__ = "agent_profiles"
 
@@ -82,7 +96,6 @@ class AgentProfile(Base):
     name = Column(String, nullable=False, unique=True)
     provider = Column(String, nullable=False, default="claude")
     command_template = Column(String, nullable=False)
-    instruction_file = Column(String, nullable=False)
     # Phase 2 additions — clean schema reset acceptable per AGENTS.md
     is_builtin = Column(Boolean, default=False, nullable=False, server_default="0")
     builtin_key = Column(String, nullable=True)
@@ -115,6 +128,7 @@ class ChatNode(Base):
     workspace_id = Column(Integer, ForeignKey("workspaces.id"), nullable=False)
     name = Column(String, nullable=False)
     agent_profile_id = Column(Integer, ForeignKey("agent_profiles.id"), nullable=True)
+    agent_role_id = Column(Integer, ForeignKey("agent_roles.id"), nullable=True)
     output_node_id = Column(Integer, ForeignKey("chat_nodes.id"), nullable=True)
     loop_node_id = Column(Integer, ForeignKey("chat_nodes.id"), nullable=True)
     max_loops = Column(Integer, default=3, nullable=False)
@@ -128,6 +142,7 @@ class ChatNode(Base):
 
     workspace = relationship("Workspace", back_populates="nodes")
     agent_profile = relationship("AgentProfile", foreign_keys=[agent_profile_id])
+    agent_role = relationship("AgentRole", foreign_keys=[agent_role_id])
     output_node = relationship("ChatNode", remote_side="ChatNode.id", foreign_keys="[ChatNode.output_node_id]")
     loop_node = relationship("ChatNode", remote_side="ChatNode.id", foreign_keys="[ChatNode.loop_node_id]")
     messages = relationship("ChatMessage", back_populates="node", cascade="all, delete-orphan", order_by="ChatMessage.sequence_number", foreign_keys="[ChatMessage.node_id]")

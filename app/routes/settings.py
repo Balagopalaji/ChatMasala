@@ -11,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import AgentProfile, Workspace
+from app.models import AgentProfile, AgentRole, Workspace
 
 router = APIRouter()
 BASE_DIR = Path(__file__).parent.parent  # routes/ -> app/
@@ -138,6 +138,8 @@ def settings_page(request: Request, db: Session = Depends(get_db)):
             back_workspace = db.query(Workspace).filter(Workspace.id == int(from_ws_id)).first()
         except ValueError:
             pass
+    builtin_roles = db.query(AgentRole).filter(AgentRole.is_builtin == True).order_by(AgentRole.sort_order).all()  # noqa: E712
+    custom_roles = db.query(AgentRole).filter(AgentRole.is_builtin == False).order_by(AgentRole.name).all()  # noqa: E712
     provider_statuses = get_provider_status()
     return templates.TemplateResponse(
         request,
@@ -145,62 +147,13 @@ def settings_page(request: Request, db: Session = Depends(get_db)):
         {
             "builtins": builtins,
             "custom_agents": custom_agents,
+            "builtin_roles": builtin_roles,
+            "custom_roles": custom_roles,
             "all_workspaces": all_workspaces,
             "back_workspace": back_workspace,
             "provider_statuses": provider_statuses,
         },
     )
-
-
-@router.get("/settings/profiles/new", response_class=HTMLResponse)
-def new_profile_form(request: Request):
-    return templates.TemplateResponse(
-        request,
-        "profile_form.html",
-        {"profile": None, "error": None},
-    )
-
-
-@router.post("/settings/profiles/new")
-def create_profile(
-    request: Request,
-    name: str = Form(...),
-    provider: str = Form("claude"),
-    command_template: str = Form(...),
-    instruction_file: str = Form(...),
-    db: Session = Depends(get_db),
-):
-    error = None
-    if not os.path.isfile(instruction_file):
-        error = f"Instruction file not found: {instruction_file}"
-    if not error:
-        existing = db.query(AgentProfile).filter(AgentProfile.name == name).first()
-        if existing:
-            error = f"A profile named '{name}' already exists."
-    if error:
-        return templates.TemplateResponse(
-            request,
-            "profile_form.html",
-            {
-                "profile": None,
-                "error": error,
-                "form_data": {
-                    "name": name,
-                    "provider": provider,
-                    "command_template": command_template,
-                    "instruction_file": instruction_file,
-                },
-            },
-        )
-    profile = AgentProfile(
-        name=name,
-        provider=provider,
-        command_template=command_template,
-        instruction_file=instruction_file,
-    )
-    db.add(profile)
-    db.commit()
-    return RedirectResponse("/settings", status_code=303)
 
 
 @router.post("/settings/agents/new")
@@ -248,7 +201,6 @@ def create_custom_agent(
         name=name,
         provider=provider,
         command_template=command_template,
-        instruction_file=instruction_file.strip(),
         is_builtin=False,
     )
     db.add(agent)
@@ -272,59 +224,52 @@ def delete_custom_agent(
     return RedirectResponse("/settings?tab=custom", status_code=303)
 
 
-@router.get("/settings/profiles/{profile_id}/edit", response_class=HTMLResponse)
-def edit_profile_form(profile_id: int, request: Request, db: Session = Depends(get_db)):
-    profile = db.query(AgentProfile).filter(AgentProfile.id == profile_id).first()
-    if not profile:
-        return RedirectResponse("/settings", status_code=303)
-    return templates.TemplateResponse(
-        request,
-        "profile_form.html",
-        {"profile": profile, "error": None},
-    )
-
-
-@router.post("/settings/profiles/{profile_id}/edit")
-def update_profile(
-    profile_id: int,
+@router.post("/settings/roles/new")
+def create_custom_role(
     request: Request,
     name: str = Form(...),
-    provider: str = Form("claude"),
-    command_template: str = Form(...),
+    description: str = Form(""),
     instruction_file: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    profile = db.query(AgentProfile).filter(AgentProfile.id == profile_id).first()
-    if not profile:
-        return RedirectResponse("/settings", status_code=303)
-    error = None
+    """Create a new custom (non-builtin) role."""
+    name = name.strip()
+    instruction_file = instruction_file.strip()
+    description = description.strip()
+
+    if not name:
+        return RedirectResponse("/settings?tab=roles&error=name_required", status_code=303)
+    if not instruction_file:
+        return RedirectResponse("/settings?tab=roles&error=instruction_file_required", status_code=303)
     if not os.path.isfile(instruction_file):
-        error = f"Instruction file not found: {instruction_file}"
-    if not error:
-        conflict = db.query(AgentProfile).filter(
-            AgentProfile.name == name,
-            AgentProfile.id != profile_id,
-        ).first()
-        if conflict:
-            error = f"A profile named '{name}' already exists."
-    if error:
-        return templates.TemplateResponse(
-            request,
-            "profile_form.html",
-            {
-                "profile": profile,
-                "error": error,
-                "form_data": {
-                    "name": name,
-                    "provider": provider,
-                    "command_template": command_template,
-                    "instruction_file": instruction_file,
-                },
-            },
-        )
-    profile.name = name
-    profile.provider = provider
-    profile.command_template = command_template
-    profile.instruction_file = instruction_file
+        return RedirectResponse(f"/settings?tab=roles&error=file_not_found", status_code=303)
+
+    existing = db.query(AgentRole).filter(AgentRole.name == name).first()
+    if existing:
+        return RedirectResponse("/settings?tab=roles&error=name_exists", status_code=303)
+
+    role = AgentRole(
+        name=name,
+        description=description or None,
+        instruction_file=instruction_file,
+        is_builtin=False,
+    )
+    db.add(role)
     db.commit()
-    return RedirectResponse("/settings", status_code=303)
+    return RedirectResponse("/settings?tab=roles", status_code=303)
+
+
+@router.post("/settings/roles/{role_id}/delete")
+def delete_custom_role(
+    role_id: int,
+    db: Session = Depends(get_db),
+):
+    """Delete a custom (non-builtin) role."""
+    role = db.query(AgentRole).filter(AgentRole.id == role_id).first()
+    if not role:
+        return RedirectResponse("/settings?tab=roles", status_code=303)
+    if role.is_builtin:
+        return RedirectResponse("/settings?tab=roles&error=cannot_delete_builtin", status_code=303)
+    db.delete(role)
+    db.commit()
+    return RedirectResponse("/settings?tab=roles", status_code=303)

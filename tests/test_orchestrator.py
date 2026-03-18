@@ -93,7 +93,6 @@ def make_agent_profile(db_session, **kwargs) -> AgentProfile:
         name="Test Agent",
         provider="test",
         command_template="echo hello",
-        instruction_file="",
     )
     defaults.update(kwargs)
     profile = AgentProfile(**defaults)
