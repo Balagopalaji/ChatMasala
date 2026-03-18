@@ -1,3 +1,8 @@
+# DEPRECATED: This module is no longer mounted in the application.
+# The legacy builder/reviewer/single-agent run surface has been retired
+# in favour of workspace-first node execution.
+# See app/routes/workspaces.py for the current execution path.
+
 """Run routes — list, create, detail, and lifecycle actions."""
 
 import json

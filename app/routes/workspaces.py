@@ -33,6 +33,15 @@ def _get_workspace_sandbox(ws_id: int) -> str:
     return sandbox
 
 
+@router.get("/", response_class=HTMLResponse)
+async def home(request: Request, db: Session = Depends(get_db)):
+    workspaces = db.query(Workspace).order_by(Workspace.updated_at.desc()).all()
+    return templates.TemplateResponse(request, "workspace_list.html", {
+        "workspaces": workspaces,
+        "all_workspaces": workspaces,
+    })
+
+
 @router.get("/workspaces", response_class=HTMLResponse)
 async def workspace_list(request: Request, db: Session = Depends(get_db)):
     workspaces = db.query(Workspace).order_by(Workspace.updated_at.desc()).all()
@@ -537,7 +546,6 @@ def _execute_node_send(node_id: int, asst_msg_id: int, output_node_id, loop_node
         role_label = m.role.upper()
         prompt_parts.append(f"{role_label}: {m.content}")
     prompt_text = "\n\n".join(prompt_parts)
-    asst_msg.prompt_text = prompt_text
 
     # Load role instructions if a role is assigned
     role_instructions = ""
@@ -550,6 +558,8 @@ def _execute_node_send(node_id: int, asst_msg_id: int, output_node_id, loop_node
 
     if role_instructions:
         prompt_text = role_instructions + "\n\n" + prompt_text
+
+    asst_msg.prompt_text = prompt_text
 
     raw_path = node.workspace.workspace_path if node.workspace else None
     workspace_path = raw_path if raw_path else _get_workspace_sandbox(node.workspace_id)

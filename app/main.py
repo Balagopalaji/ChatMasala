@@ -9,7 +9,6 @@ import app.models  # noqa: F401 — registers models with Base.metadata
 
 from app import db
 from app.routes import browse as browse_router
-from app.routes import runs as runs_router
 from app.routes import settings as settings_router
 from app.routes import workspaces as workspaces_router
 
@@ -27,7 +26,6 @@ app = FastAPI(title="ChatMasala", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 app.include_router(workspaces_router.router)
-app.include_router(runs_router.router)
 app.include_router(settings_router.router)
 app.include_router(browse_router.router)
 

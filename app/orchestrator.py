@@ -1,3 +1,8 @@
+# DEPRECATED: This module is no longer mounted in the application.
+# The legacy builder/reviewer/single-agent run surface has been retired
+# in favour of workspace-first node execution.
+# See app/routes/workspaces.py for the current execution path.
+
 """Deterministic orchestrator for the ChatMasala builder/reviewer loop."""
 
 import dataclasses
@@ -62,13 +67,19 @@ def _get_command(profile: Optional[AgentProfile]) -> str:
 
 
 def _get_instruction_text(profile: Optional[AgentProfile]) -> str:
-    """Instruction text is now managed via AgentRole, not AgentProfile.
-
-    This stub returns an empty string so that the builder/reviewer/single-agent
-    prompt functions still receive a valid instruction_text argument.  Role-based
-    instruction loading happens at the workspace/node level and is not part of
-    the legacy Run orchestrator.
     """
+    DEPRECATED: Role instructions are no longer stored on AgentProfile.
+    Role instructions are now loaded from AgentRole.instruction_file at the
+    workspace node execution level (_execute_node_send in routes/workspaces.py).
+    This function now returns an empty string. Legacy /runs flows will execute
+    without role instructions until the legacy run surface is retired.
+    """
+    import logging
+    logging.getLogger(__name__).warning(
+        "_get_instruction_text() called on deprecated legacy run path. "
+        "No role instructions will be applied. Profile: %s",
+        getattr(profile, 'name', profile)
+    )
     return ""
 
 
@@ -104,7 +115,7 @@ def run_single_agent_turn(run_id: int, db: Session) -> None:
 
     profile = _load_profile(db, run.primary_agent_profile_id)
     command = _get_command(profile)
-    instruction_text = _get_instruction_text(profile)
+    instruction_text = _get_instruction_text(profile)  # DEPRECATED: legacy run path
 
     if not command:
         run.status = "failed"
@@ -190,7 +201,7 @@ def run_builder_turn(run: Run, db: Session) -> None:
     )
 
     builder_profile = _load_profile(db, run.builder_agent_profile_id)
-    builder_instruction = _get_instruction_text(builder_profile)
+    builder_instruction = _get_instruction_text(builder_profile)  # DEPRECATED: legacy run path
 
     prompt = build_builder_prompt(
         goal=run.goal,
@@ -278,7 +289,7 @@ def run_reviewer_turn(run: Run, db: Session) -> None:
     user_note = get_latest_user_note(run.id, db)
 
     reviewer_profile = _load_profile(db, run.reviewer_agent_profile_id)
-    reviewer_instruction = _get_instruction_text(reviewer_profile)
+    reviewer_instruction = _get_instruction_text(reviewer_profile)  # DEPRECATED: legacy run path
 
     prompt = build_reviewer_prompt(
         goal=run.goal,

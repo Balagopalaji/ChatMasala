@@ -79,6 +79,21 @@ class UserNoteResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# AgentRole schemas
+# ---------------------------------------------------------------------------
+
+
+class AgentRoleResponse(BaseModel):
+    id: int
+    name: str
+    slug: Optional[str] = None
+    description: Optional[str] = None
+    is_builtin: bool = False
+    sort_order: int = 0
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ---------------------------------------------------------------------------
 # AgentProfile schemas
 # ---------------------------------------------------------------------------
 
@@ -87,7 +102,6 @@ class AgentProfileCreate(BaseModel):
     name: str
     provider: str = "claude"
     command_template: str
-    instruction_file: str
 
 
 class AgentProfileResponse(BaseModel):
@@ -95,7 +109,6 @@ class AgentProfileResponse(BaseModel):
     name: str
     provider: str
     command_template: str
-    instruction_file: str
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -128,7 +141,9 @@ class WorkspaceRead(WorkspaceBase):
 class ChatNodeBase(BaseModel):
     name: str
     agent_profile_id: Optional[int] = None
-    downstream_node_id: Optional[int] = None
+    agent_role_id: Optional[int] = None
+    output_node_id: Optional[int] = None
+    loop_node_id: Optional[int] = None
     order_index: int = 0
 
 
@@ -145,6 +160,10 @@ class ChatNodeRead(ChatNodeBase):
     conversation_version: int
     created_at: datetime
     updated_at: datetime
+    agent_role: Optional[AgentRoleResponse] = None
+    agent_profile: Optional[AgentProfileResponse] = None
+    output_node: Optional["ChatNodeRead"] = None
+    loop_node: Optional["ChatNodeRead"] = None
 
 
 # ---------------------------------------------------------------------------

@@ -238,11 +238,6 @@
       </div>
 
       <div class="form-group">
-        <label>Description (optional)</label>
-        <textarea name="description" class="form-control" rows="2" placeholder="What does this agent do?"></textarea>
-      </div>
-
-      <div class="form-group">
         <label>Provider preset</label>
         <select name="provider_preset" class="form-control" onchange="fillPreset(this)" id="preset-select">
           <option value="">— choose a preset —</option>
@@ -259,11 +254,6 @@
           <label>Command template</label>
           <input type="text" name="command_template" id="command-input" class="form-control"
             placeholder="e.g. claude --dangerously-skip-permissions" style="font-family:monospace">
-        </div>
-        <div class="form-group">
-          <label>Instruction file path (optional)</label>
-          <input type="text" name="instruction_file" class="form-control"
-            placeholder="/path/to/instructions.md" style="font-family:monospace">
         </div>
       </details>
 

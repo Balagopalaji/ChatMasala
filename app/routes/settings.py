@@ -160,10 +160,8 @@ def settings_page(request: Request, db: Session = Depends(get_db)):
 def create_custom_agent(
     request: Request,
     name: str = Form(...),
-    description: str = Form(""),
     provider_preset: str = Form(""),
     command_template: str = Form(""),
-    instruction_file: str = Form(""),
     db: Session = Depends(get_db),
 ):
     """Create a new custom (non-builtin) agent profile via modal form."""
