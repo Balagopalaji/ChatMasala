@@ -22,22 +22,19 @@
   <div class="workflow-strip">
     <div class="workflow-strip-header">
       <!-- Inline workspace title editing (B) -->
-      <h1 class="workspace-title" id="ws-title-display"
-          onclick="startWsRename()"
+      <h1 class="workspace-title js-ws-title-display" id="ws-title-display"
           title="Click to rename">{{ workspace.title }}</h1>
       <form method="post" action="/workspaces/{{ workspace.id }}/rename"
             id="ws-rename-form" style="display:none">
         <input type="text" name="title" id="ws-title-input"
                class="workspace-title-input"
                value="{{ workspace.title | e }}"
-               onblur="submitWsRename()"
-               onkeydown="handleWsTitleKey(event)">
+               >
       </form>
       <!-- Workspace path — inline editable -->
       <div class="ws-path-row">
         <span class="ws-path-label">Path:</span>
-        <span class="workspace-path-display" id="ws-path-display"
-              onclick="startWsPathEdit()"
+        <span class="workspace-path-display js-ws-path-display" id="ws-path-display"
               title="Click to set a custom project path">
           {% if workspace.workspace_path %}
             {{ workspace.workspace_path }}
@@ -45,15 +42,13 @@
             <em class="muted" title="Default sandbox — agents are isolated here">Sandbox: {{ sandbox_path }}</em>
           {% endif %}
         </span>
-        <button type="button" class="btn btn-secondary btn-sm" onclick="openBrowseModal()" style="flex-shrink:0">Browse…</button>
+        <button type="button" class="btn btn-secondary btn-sm js-open-browse-modal" style="flex-shrink:0">Browse…</button>
         <form method="post" action="/workspaces/{{ workspace.id }}/set-path"
               id="ws-path-form" style="display:none">
           <input type="text" name="workspace_path" id="ws-path-input"
                  class="workspace-path-input"
                  value="{{ workspace.workspace_path or '' }}"
-                 placeholder="/path/to/project"
-                 onblur="submitWsPath()"
-                 onkeydown="handleWsPathKey(event)">
+                 placeholder="/path/to/project">
         </form>
       </div>
     </div>
@@ -67,8 +62,7 @@
       {% for node in workspace.nodes %}
         <a class="workflow-node-chip {% if node.status == 'running' %}running{% endif %}"
            href="#node-{{ node.id }}" data-node-id="{{ node.id }}"
-           data-chip-index="{{ loop.index0 }}"
-           onclick="focusNode({{ node.id }}); return false;">
+           data-chip-index="{{ loop.index0 }}">
           <span class="node-num">{{ loop.index }}</span>
           <span class="workflow-node-chip-name">{{ node.name }}</span>
           {% if node.agent_profile %}
@@ -93,10 +87,7 @@
       </form>
     </div>
 
-    <script>
-    // Emit loop group data for JS bracket renderer
-    window.LOOP_GROUPS = {{ loop_groups | tojson }};
-    </script>
+    <script id="loop-groups-data" type="application/json">{{ loop_groups | tojson }}</script>
   </div>
 
   <!-- Lower chat panels — fixed min-width, horizontal scroll (J) -->
@@ -115,16 +106,16 @@
 
       <!-- 1. Node name (editable inline — M) -->
       <div class="chat-panel-header">
-        <span class="chat-panel-name" id="node-name-display-{{ node.id }}"
+        <span class="chat-panel-name js-node-name-display" id="node-name-display-{{ node.id }}"
               title="Click to rename"
-              onclick="startNodeRename({{ node.id }}, '{{ node.name | e }}')">{{ node.name }}</span>
+              data-node-id="{{ node.id }}"
+              data-current-name="{{ node.name }}">{{ node.name }}</span>
         <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/rename"
               id="node-rename-form-{{ node.id }}" style="display:none;flex:1">
           <input type="text" name="name" id="node-name-input-{{ node.id }}"
                  class="chat-panel-name-input"
                  value="{{ node.name | e }}"
-                 onblur="submitNodeRename({{ node.id }})"
-                 onkeydown="handleNodeNameKey(event, {{ node.id }})">
+                 data-node-id="{{ node.id }}">
         </form>
         <span class="chat-panel-status status-{{ node.status }}">
           {{ 'Ready' if node.status == 'idle' else 'Running…' if node.status == 'running' else 'Needs attention' }}
@@ -150,7 +141,7 @@
           <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/route"
                 id="route-form-{{ node.id }}" style="display:contents">
             <select name="output_node_id" class="route-select-inline"
-                    onchange="document.getElementById('route-form-{{ node.id }}').submit()">
+                    data-submit-form="route-form-{{ node.id }}">
               <option value="">No output</option>
               {% for other in workspace.nodes %}
                 {% if other.id != node.id %}
@@ -167,8 +158,9 @@
           <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/loop-route"
                 id="loop-form-{{ node.id }}" style="display:contents">
             <select name="loop_node_id" class="route-select-inline"
-                    id="loop-select-{{ node.id }}"
-                    onchange="onLoopSelectChange({{ node.id }}); document.getElementById('loop-form-{{ node.id }}').submit()">
+                      id="loop-select-{{ node.id }}"
+                    data-node-id="{{ node.id }}"
+                    data-submit-form="loop-form-{{ node.id }}">
               <option value="">No loop</option>
               {% for other in workspace.nodes %}
                 {% if other.id != node.id %}
@@ -176,12 +168,12 @@
                 {% endif %}
               {% endfor %}
             </select>
-            <span id="max-loops-wrap-{{ node.id }}" style="{{ 'display:none' if not node.loop_node_id else '' }}">
+            <span id="max-loops-wrap-{{ node.id }}" {% if not node.loop_node_id %}hidden{% endif %}>
               <input type="number" name="max_loops" class="max-loops-input"
                      id="max-loops-input-{{ node.id }}"
                      value="{{ node.max_loops }}" min="1" max="99"
                      title="Max loops"
-                     onchange="document.getElementById('loop-form-{{ node.id }}').submit()">
+                     data-submit-form="loop-form-{{ node.id }}">
             </span>
           </form>
         </div>
@@ -221,8 +213,7 @@
             class="chat-input-area" id="send-form-{{ node.id }}">
         <textarea class="chat-input" name="content" placeholder="Type a message… (Cmd+Enter to send)" rows="2"
                   style="overflow-y: auto; resize: none;"
-                  oninput="autoGrow(this)"
-                  onkeydown="handleComposerKey(event, this.closest('form'))"></textarea>
+                  data-composer-form="send-form-{{ node.id }}"></textarea>
         <button type="submit" class="btn btn-primary btn-sm">Send</button>
       </form>
 
@@ -231,7 +222,7 @@
         <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/agent"
               id="agent-form-{{ node.id }}" style="display:contents">
           <select name="agent_profile_id" class="agent-select-inline"
-                  onchange="document.getElementById('agent-form-{{ node.id }}').submit()">
+                  data-submit-form="agent-form-{{ node.id }}">
             <option value="">— No agent —</option>
             {% for p in profiles %}
             <option value="{{ p.id }}" {% if node.agent_profile_id == p.id %}selected{% endif %}>{{ p.name }}</option>
@@ -244,7 +235,7 @@
       <div class="chat-panel-footer-actions">
         <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/reset">
           <button type="submit" class="btn btn-secondary btn-sm"
-                  onclick="return confirm('Reset conversation?')">↺ Reset</button>
+                  data-confirm-message="Reset conversation?">↺ Reset</button>
         </form>
         <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/import-last">
           <select name="source_node_id" class="route-select-inline" style="font-size:11px">
@@ -260,7 +251,7 @@
         <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/delete"
               style="margin-left:auto">
           <button type="submit" class="btn btn-danger btn-sm"
-                  onclick="return confirm('Delete this node?')">Delete</button>
+                  data-confirm-message="Delete this node?">Delete</button>
         </form>
       </div>
 
@@ -274,22 +265,25 @@
 <div id="browse-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:1000; align-items:center; justify-content:center;">
   <div style="background:var(--bg-card); border-radius:12px; width:500px; max-height:70vh; display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,0.3); overflow:hidden;">
     <div style="padding:16px 20px; border-bottom:1px solid var(--border-color); display:flex; align-items:center; gap:8px;">
-      <button type="button" id="browse-up-btn" onclick="browseUp()" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-secondary);padding:2px 6px;" title="Up">↑</button>
+      <button type="button" id="browse-up-btn" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-secondary);padding:2px 6px;" title="Up">↑</button>
       <span id="browse-current-path" style="flex:1; font-family:var(--font-mono); font-size:12px; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
-      <button type="button" onclick="closeBrowseModal()" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-muted);">✕</button>
+      <button type="button" id="browse-close-btn" style="background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-muted);">✕</button>
     </div>
     <div id="browse-entries" style="flex:1; overflow-y:auto; padding:8px 0;"></div>
     <div style="padding:12px 20px; border-top:1px solid var(--border-color); display:flex; gap:8px; justify-content:flex-end; align-items:center;">
       <span id="browse-selected-label" style="flex:1; font-family:var(--font-mono); font-size:12px; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis;"></span>
-      <button type="button" class="btn btn-secondary btn-sm" onclick="closeBrowseModal()">Cancel</button>
-      <button type="button" class="btn btn-primary btn-sm" id="browse-select-btn" onclick="selectBrowsedPath()">Select Folder</button>
+      <button type="button" class="btn btn-secondary btn-sm js-browse-cancel">Cancel</button>
+      <button type="button" class="btn btn-primary btn-sm" id="browse-select-btn">Select Folder</button>
     </div>
   </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
+<script id="workspace-page-config" type="application/json">{{ {'workspaceId': workspace.id, 'nodeNames': node_names} | tojson }}</script>
 <script>
+var LOOP_GROUPS = JSON.parse(document.getElementById('loop-groups-data').textContent);
+
 // ── Loop bracket renderer ─────────────────────────────────
 (function() {
   // 4-color palette for loop brackets
@@ -301,7 +295,7 @@
   ];
 
   function renderLoopBrackets() {
-    var groups = window.LOOP_GROUPS || [];
+    var groups = LOOP_GROUPS || [];
     var strip = document.getElementById('workflow-nodes');
     if (!strip) return;
 
@@ -434,7 +428,7 @@ function onLoopSelectChange(nodeId) {
   const sel = document.getElementById('loop-select-' + nodeId);
   const wrap = document.getElementById('max-loops-wrap-' + nodeId);
   if (sel && wrap) {
-    wrap.style.display = sel.value ? '' : 'none';
+    wrap.hidden = !sel.value;
   }
 }
 
@@ -571,22 +565,13 @@ function selectBrowsedPath() {
   document.getElementById('ws-path-form').submit();
 }
 
-// Close modal on backdrop click
-document.addEventListener('DOMContentLoaded', function() {
-  var modal = document.getElementById('browse-modal');
-  if (modal) {
-    modal.addEventListener('click', function(e) {
-      if (e.target === modal) closeBrowseModal();
-    });
-  }
-});
+var PAGE_CONFIG = JSON.parse(document.getElementById('workspace-page-config').textContent);
 
 // ── AJAX status polling ──────────────────────────────────
 (function() {
-  var WS_ID = {{ workspace.id }};
+  var WS_ID = PAGE_CONFIG.workspaceId;
   var pollTimer = null;
-  // node_names passed from server for provenance display
-  var NODE_NAMES = {{ node_names | tojson }};
+  var NODE_NAMES = PAGE_CONFIG.nodeNames;
 
   function statusLabel(status) {
     if (status === 'idle') return 'Ready';
@@ -652,8 +637,9 @@ document.addEventListener('DOMContentLoaded', function() {
           var thinking = transcript.querySelector('.thinking-row');
           if (thinking) thinking.remove();
 
-          // Remove empty state if messages exist
+          // Remove empty state — will re-add below if still no messages
           var emptyState = transcript.querySelector('.empty-state');
+          if (emptyState) { emptyState.remove(); emptyState = null; }
 
           // Get existing rendered message IDs
           var existingIds = new Set();
@@ -667,7 +653,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
           node.messages.forEach(function(msg) {
             if (!existingIds.has(msg.id)) {
-              if (emptyState) { emptyState.remove(); emptyState = null; }
               transcript.appendChild(renderMessage(msg));
               addedAny = true;
             } else {
@@ -727,5 +712,98 @@ document.addEventListener('DOMContentLoaded', function() {
     pollTimer = setTimeout(poll, 2000);
   });
 })();
+
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.js-ws-title-display').forEach(function(el) {
+    el.addEventListener('click', startWsRename);
+  });
+
+  document.querySelectorAll('#ws-title-input').forEach(function(el) {
+    el.addEventListener('blur', submitWsRename);
+    el.addEventListener('keydown', handleWsTitleKey);
+  });
+
+  document.querySelectorAll('.js-ws-path-display').forEach(function(el) {
+    el.addEventListener('click', startWsPathEdit);
+  });
+
+  document.querySelectorAll('#ws-path-input').forEach(function(el) {
+    el.addEventListener('blur', submitWsPath);
+    el.addEventListener('keydown', handleWsPathKey);
+  });
+
+  document.querySelectorAll('.workflow-node-chip').forEach(function(el) {
+    el.addEventListener('click', function(e) {
+      e.preventDefault();
+      focusNode(el.dataset.nodeId);
+    });
+  });
+
+  document.querySelectorAll('.chat-input[data-composer-form]').forEach(function(el) {
+    el.addEventListener('input', function() {
+      autoGrow(el);
+    });
+    el.addEventListener('keydown', function(e) {
+      handleComposerKey(e, document.getElementById(el.dataset.composerForm));
+    });
+  });
+
+  document.querySelectorAll('.js-node-name-display').forEach(function(el) {
+    el.addEventListener('click', function() {
+      startNodeRename(el.dataset.nodeId, el.dataset.currentName);
+    });
+  });
+
+  document.querySelectorAll('.chat-panel-name-input').forEach(function(el) {
+    el.addEventListener('blur', function() {
+      submitNodeRename(el.dataset.nodeId);
+    });
+    el.addEventListener('keydown', function(e) {
+      handleNodeNameKey(e, el.dataset.nodeId);
+    });
+  });
+
+  document.querySelectorAll('[data-submit-form]').forEach(function(el) {
+    el.addEventListener('change', function() {
+      if (el.classList.contains('route-select-inline') && el.id.indexOf('loop-select-') === 0) {
+        onLoopSelectChange(el.dataset.nodeId);
+      }
+      var form = document.getElementById(el.dataset.submitForm);
+      if (form) form.submit();
+    });
+  });
+
+  document.querySelectorAll('[data-confirm-message]').forEach(function(el) {
+    el.addEventListener('click', function(e) {
+      if (!window.confirm(el.dataset.confirmMessage)) {
+        e.preventDefault();
+      }
+    });
+  });
+
+  var modal = document.getElementById('browse-modal');
+  if (modal) {
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) closeBrowseModal();
+    });
+  }
+
+  var browseUpBtn = document.getElementById('browse-up-btn');
+  if (browseUpBtn) browseUpBtn.addEventListener('click', browseUp);
+
+  var browseCloseBtn = document.getElementById('browse-close-btn');
+  if (browseCloseBtn) browseCloseBtn.addEventListener('click', closeBrowseModal);
+
+  document.querySelectorAll('.js-browse-cancel').forEach(function(el) {
+    el.addEventListener('click', closeBrowseModal);
+  });
+
+  var browseSelectBtn = document.getElementById('browse-select-btn');
+  if (browseSelectBtn) browseSelectBtn.addEventListener('click', selectBrowsedPath);
+
+  document.querySelectorAll('.js-open-browse-modal').forEach(function(el) {
+    el.addEventListener('click', openBrowseModal);
+  });
+});
 </script>
 {% endblock %}
