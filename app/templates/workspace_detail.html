@@ -60,18 +60,22 @@
       {# Flat chip rendering — revisit brackets are drawn by JS #}
       {% for node in workspace.nodes %}
         {% set node_edge_list = outgoing_edges_by_node_id.get(node.id, []) %}
-        <a class="workflow-node-chip {% if node.status == 'running' %}running{% endif %}"
+        <a class="workflow-node-chip {% if node.status == 'running' %}running{% elif node.status == 'awaiting_route' %}awaiting-route{% endif %}"
            href="#node-{{ node.id }}" data-node-id="{{ node.id }}"
            data-chip-index="{{ loop.index0 }}">
           <span class="node-num">{{ loop.index }}</span>
           <span class="workflow-node-chip-name">{{ node.name }}</span>
+          {% if node.node_type == 'human' %}
+          <span class="node-type-badge">Human</span>
+          {% else %}
           {% if node.agent_role %}
           <span class="workflow-node-chip-agent">{{ node.agent_role.name }}{% if node.agent_profile %} / <span style="opacity:0.7">{{ node.agent_profile.name }}</span>{% endif %}</span>
           {% elif node.agent_profile %}
           <span class="workflow-node-chip-agent">{{ node.agent_profile.name }}</span>
           {% endif %}
+          {% endif %}
           <span class="workflow-node-chip-status status-{{ node.status }}">
-            {{ 'Ready' if node.status == 'idle' else 'Running…' if node.status == 'running' else 'Needs attention' }}
+            {{ 'Ready' if node.status == 'idle' else 'Running…' if node.status == 'running' else 'Waiting' if node.status == 'awaiting_route' else 'Needs attention' }}
           </span>
           {% if node_edge_list %}
           <span class="workflow-node-chip-route">
@@ -119,7 +123,7 @@
                  data-node-id="{{ node.id }}">
         </form>
         <span class="chat-panel-status status-{{ node.status }}">
-          {{ 'Ready' if node.status == 'idle' else 'Running…' if node.status == 'running' else 'Needs attention' }}
+          {{ 'Ready' if node.status == 'idle' else 'Running…' if node.status == 'running' else 'Waiting' if node.status == 'awaiting_route' else 'Needs attention' }}
         </span>
       </div>
 
@@ -141,6 +145,36 @@
             {% else %}
               <span class="muted">No incoming routes</span>
             {% endif %}
+          </div>
+        </div>
+
+        {# Node type #}
+        <div class="route-row">
+          <label>Node type</label>
+          <div class="routing-mode-toggle">
+            <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/node-type" style="display:inline">
+              <input type="hidden" name="node_type" value="agent">
+              <button type="submit" class="{% if node.node_type != 'human' %}btn-mode-active{% else %}btn-mode{% endif %}">Agent</button>
+            </form>
+            <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/node-type" style="display:inline">
+              <input type="hidden" name="node_type" value="human">
+              <button type="submit" class="{% if node.node_type == 'human' %}btn-mode-active{% else %}btn-mode{% endif %}">Human input</button>
+            </form>
+          </div>
+        </div>
+
+        {# Routing mode toggle #}
+        <div class="route-row">
+          <label>Routing mode</label>
+          <div class="routing-mode-toggle">
+            <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/routing-mode" style="display:inline">
+              <input type="hidden" name="routing_mode" value="auto">
+              <button type="submit" class="{% if node.routing_mode == 'auto' %}btn-mode-active{% else %}btn-mode{% endif %}">Auto</button>
+            </form>
+            <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/routing-mode" style="display:inline">
+              <input type="hidden" name="routing_mode" value="human_gate">
+              <button type="submit" class="{% if node.routing_mode == 'human_gate' %}btn-mode-active{% else %}btn-mode{% endif %}">Human gate</button>
+            </form>
           </div>
         </div>
 
@@ -168,6 +202,19 @@
             <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/edges/{{ edge.edge_id }}/delete" style="display:inline">
               <button type="submit" class="btn-danger-small">✕</button>
             </form>
+            {% set all_edges = outgoing_edges_by_node_id.get(node.id, []) %}
+            {% if not loop.first %}
+            <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/edges/{{ edge.edge_id }}/reorder" style="display:inline">
+              <input type="hidden" name="direction" value="up">
+              <button type="submit" class="btn-reorder" title="Move up">↑</button>
+            </form>
+            {% endif %}
+            {% if not loop.last %}
+            <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/edges/{{ edge.edge_id }}/reorder" style="display:inline">
+              <input type="hidden" name="direction" value="down">
+              <button type="submit" class="btn-reorder" title="Move down">↓</button>
+            </form>
+            {% endif %}
             {% else %}
             <span class="muted">No outbound edges</span>
             {% endfor %}
@@ -230,6 +277,34 @@
         {% endif %}
       </div>
 
+      <!-- Human gate routing panel (shown when node is awaiting_route) -->
+      {% if node.status == 'awaiting_route' %}
+      {% set current_msgs = node.messages | selectattr('conversation_version', 'equalto', node.conversation_version) | selectattr('status', 'equalto', 'completed') | list %}
+      {% set gate_msg = current_msgs | last %}
+      <div class="human-gate-panel" id="human-gate-{{ node.id }}">
+        <p class="human-gate-label">Agent responded — choose where to route this output:</p>
+        {% if gate_msg %}
+        <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/route-output">
+          <input type="hidden" name="message_id" value="{{ gate_msg.id }}">
+          {% for edge in outgoing_edges_by_node_id.get(node.id, []) %}
+          <label class="edge-checkbox-row">
+            <input type="checkbox" name="edge_ids" value="{{ edge.edge_id }}" checked>
+            <span class="edge-trigger-badge {{ edge.trigger }}">{{ 'On complete' if edge.trigger == 'on_complete' else 'On NO_GO' }}</span>
+            {{ edge.label or edge.target_name }}
+          </label>
+          {% else %}
+          <p class="muted">No outbound edges configured.</p>
+          {% endfor %}
+          <div class="human-gate-actions">
+            <button type="submit" class="btn-primary">Route to selected</button>
+          </div>
+        </form>
+        {% else %}
+        <p class="muted">No completed message to route.</p>
+        {% endif %}
+      </div>
+      {% endif %}
+
       <!-- 6. Composer: textarea (C: auto-grow) + send (D: Cmd+Enter) -->
       <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/send"
             class="chat-input-area" id="send-form-{{ node.id }}">
@@ -240,6 +315,7 @@
       </form>
 
       <!-- 7. Role + Model pickers -->
+      {% if node.node_type != 'human' %}
       <div class="chat-panel-agent-row">
         <div style="display:flex;flex-direction:column;gap:4px;width:100%">
           <div style="display:flex;align-items:center;gap:6px">
@@ -272,6 +348,7 @@
           </div>
         </div>
       </div>
+      {% endif %}
 
       <!-- 8. Action buttons: Reset, Import, Delete -->
       <div class="chat-panel-footer-actions">
@@ -609,6 +686,7 @@ var PAGE_CONFIG = JSON.parse(document.getElementById('workspace-page-config').te
   function statusLabel(status) {
     if (status === 'idle') return 'Ready';
     if (status === 'running') return 'Running…';
+    if (status === 'awaiting_route') return 'Waiting';
     return 'Needs attention';
   }
 
@@ -662,10 +740,11 @@ var PAGE_CONFIG = JSON.parse(document.getElementById('workspace-page-config').te
             chipBadge.className = 'workflow-node-chip-status status-' + node.status;
           }
 
-          // Update chip running class
+          // Update chip running / awaiting-route classes
           var chip = document.querySelector('.workflow-node-chip[data-node-id="' + node.id + '"]');
           if (chip) {
             chip.classList.toggle('running', node.status === 'running');
+            chip.classList.toggle('awaiting-route', node.status === 'awaiting_route');
           }
 
           // Update transcript — only add new messages, never remove existing ones

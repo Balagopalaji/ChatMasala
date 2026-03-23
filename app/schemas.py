@@ -153,6 +153,8 @@ class ChatNodeBase(BaseModel):
     agent_profile_id: Optional[int] = None
     agent_role_id: Optional[int] = None
     order_index: int = 0
+    routing_mode: str = "auto"
+    node_type: str = "agent"
 
 
 class ChatNodeCreate(ChatNodeBase):

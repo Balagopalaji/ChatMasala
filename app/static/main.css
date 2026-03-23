@@ -2171,11 +2171,100 @@ details[open] > .bubble-details summary::before,
     cursor: pointer;
 }
 
+.btn-reorder {
+    font-size: 0.75rem;
+    padding: 0 0.3rem;
+    background: none;
+    border: 1px solid var(--color-border, #ccc);
+    border-radius: 3px;
+    cursor: pointer;
+}
+
 .route-sources {
     display: flex;
     flex-direction: column;
     gap: 0.2rem;
     font-size: 0.85rem;
+}
+
+/* =========================================================
+   Human gate
+   ========================================================= */
+
+.human-gate-panel {
+    background: var(--color-surface-alt, #f8f8f8);
+    border: 1px solid var(--color-border, #ddd);
+    border-radius: 6px;
+    padding: 0.75rem;
+    margin: 0.5rem 0;
+}
+
+.human-gate-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.edge-checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.human-gate-actions {
+    margin-top: 0.5rem;
+}
+
+.awaiting-route .node-status-badge {
+    background: var(--color-amber, #f39c12);
+}
+
+.workflow-node-chip.awaiting-route {
+    border-color: var(--color-amber, #f59e0b);
+}
+
+.btn-mode {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+    border: 1px solid var(--color-border, #ccc);
+    border-radius: 3px;
+    background: none;
+    cursor: pointer;
+}
+
+.btn-mode-active {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+    border: 1px solid var(--color-primary, #3498db);
+    border-radius: 3px;
+    background: var(--color-primary, #3498db);
+    color: white;
+    cursor: pointer;
+}
+
+.routing-mode-toggle {
+    display: flex;
+    gap: 0.3rem;
+}
+
+.edge-trigger-badge {
+    font-size: 0.7rem;
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    background: var(--color-surface-alt, #eee);
+}
+
+.node-type-badge {
+    font-size: 0.65rem;
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    background: var(--color-surface-alt, #eee);
+    color: var(--color-muted, #888);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
 }
 
 /* =========================================================

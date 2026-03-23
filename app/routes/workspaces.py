@@ -314,6 +314,97 @@ def set_node_role(
     return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
 
 
+@router.post("/workspaces/{ws_id}/nodes/{node_id}/routing-mode")
+def set_routing_mode(
+    ws_id: int,
+    node_id: int,
+    routing_mode: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    node = db.query(ChatNode).filter(ChatNode.id == node_id, ChatNode.workspace_id == ws_id).first()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    if routing_mode not in ("auto", "human_gate"):
+        raise HTTPException(status_code=400, detail="Invalid routing_mode")
+    node.routing_mode = routing_mode
+    db.commit()
+    return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
+
+
+@router.post("/workspaces/{ws_id}/nodes/{node_id}/node-type")
+def set_node_type(
+    ws_id: int,
+    node_id: int,
+    node_type: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    node = db.query(ChatNode).filter(ChatNode.id == node_id, ChatNode.workspace_id == ws_id).first()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    if node_type not in ("agent", "human"):
+        raise HTTPException(status_code=400, detail="Invalid node_type")
+    node.node_type = node_type
+    db.commit()
+    return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
+
+
+@router.post("/workspaces/{ws_id}/nodes/{node_id}/route-output")
+async def route_output(
+    ws_id: int,
+    node_id: int,
+    request: Request,
+    message_id: int = Form(...),
+    db: Session = Depends(get_db),
+):
+    """Human gate: deliver a specific completed message (by message_id) to selected edges."""
+    node = db.query(ChatNode).filter(ChatNode.id == node_id, ChatNode.workspace_id == ws_id).first()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    if node.status != "awaiting_route":
+        raise HTTPException(status_code=400, detail="Node is not awaiting routing")
+
+    form_data = await request.form()
+    edge_id_strs = form_data.getlist("edge_ids")
+    try:
+        selected_edge_ids = [int(x) for x in edge_id_strs if x]
+    except ValueError:
+        selected_edge_ids = []
+
+    if not selected_edge_ids:
+        node.status = "idle"
+        db.commit()
+        return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
+
+    src_msg = db.query(ChatMessage).filter(
+        ChatMessage.id == message_id,
+        ChatMessage.node_id == node_id,
+        ChatMessage.conversation_version == node.conversation_version,
+        ChatMessage.status == "completed",
+    ).first()
+    if not src_msg:
+        raise HTTPException(status_code=404, detail="Message not found or not completed")
+
+    edges = db.query(NodeEdge).filter(
+        NodeEdge.source_node_id == node_id,
+        NodeEdge.id.in_(selected_edge_ids),
+    ).all()
+
+    for edge in edges:
+        edge_entry = {
+            "edge_id": edge.id,
+            "target_node_id": edge.target_node_id,
+            "trigger": edge.trigger,
+            "label": edge.label or "",
+            "sort_order": edge.sort_order,
+        }
+        _deliver_routed_message(node_id, src_msg.id, edge_entry, db)
+
+    node.status = "idle"
+    node.last_error = None
+    db.commit()
+    return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
+
+
 @router.post("/workspaces/{ws_id}/nodes/{node_id}/edges")
 def add_edge(
     ws_id: int,
@@ -321,7 +412,6 @@ def add_edge(
     target_node_id: str = Form(""),
     trigger: str = Form("on_complete"),
     label: str = Form(""),
-    sort_order: int = Form(0),
     db: Session = Depends(get_db),
 ):
     node = db.query(ChatNode).filter(ChatNode.id == node_id, ChatNode.workspace_id == ws_id).first()
@@ -338,12 +428,18 @@ def add_edge(
     target = db.query(ChatNode).filter(ChatNode.id == tid, ChatNode.workspace_id == ws_id).first()
     if not target:
         raise HTTPException(status_code=400, detail="Target must be in the same workspace")
+    # Auto-assign sort_order as max existing + 1
+    max_order = db.query(NodeEdge).filter(
+        NodeEdge.source_node_id == node_id
+    ).with_entities(NodeEdge.sort_order).all()
+    next_order = (max(o[0] for o in max_order) + 1) if max_order else 0
+
     db.add(NodeEdge(
         source_node_id=node_id,
         target_node_id=tid,
         trigger=trigger,
         label=label.strip() or None,
-        sort_order=sort_order,
+        sort_order=next_order,
     ))
     db.commit()
     return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
@@ -403,6 +499,38 @@ def delete_edge(
     return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
 
 
+@router.post("/workspaces/{ws_id}/nodes/{node_id}/edges/{edge_id}/reorder")
+def reorder_edge(
+    ws_id: int,
+    node_id: int,
+    edge_id: int,
+    direction: str = Form(...),  # "up" or "down"
+    db: Session = Depends(get_db),
+):
+    node = db.query(ChatNode).filter(ChatNode.id == node_id, ChatNode.workspace_id == ws_id).first()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    # Load all edges for this source, ordered by sort_order then id for stability
+    edges = db.query(NodeEdge).filter(
+        NodeEdge.source_node_id == node_id
+    ).order_by(NodeEdge.sort_order, NodeEdge.id).all()
+    idx = next((i for i, e in enumerate(edges) if e.id == edge_id), None)
+    if idx is None:
+        raise HTTPException(status_code=404, detail="Edge not found")
+    if direction == "up" and idx > 0:
+        swap = edges[idx - 1]
+    elif direction == "down" and idx < len(edges) - 1:
+        swap = edges[idx + 1]
+    else:
+        return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
+    # Swap sort_order values and reindex the whole list for stability
+    edges[idx], edges[idx - 1 if direction == "up" else idx + 1] = swap, edges[idx]
+    for i, e in enumerate(edges):
+        e.sort_order = i
+    db.commit()
+    return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
+
+
 @router.post("/workspaces/{ws_id}/nodes/{node_id}/send")
 def send_message(
     ws_id: int,
@@ -417,6 +545,8 @@ def send_message(
         raise HTTPException(status_code=404, detail="Node not found")
     if node.status == "running":
         raise HTTPException(status_code=400, detail="Node is already running")
+    if node.status == "awaiting_route":
+        raise HTTPException(status_code=400, detail="Node is awaiting a routing decision — route or reset before sending again")
 
     content = content.strip()
     if not content:
@@ -428,6 +558,42 @@ def send_message(
         for e in node.outbound_edges
     ]
 
+    if node.node_type == "human":
+        # Human node: user message IS the output — no agent, no assistant placeholder
+        last = db.query(ChatMessage).filter(
+            ChatMessage.node_id == node_id,
+            ChatMessage.conversation_version == node.conversation_version,
+        ).order_by(ChatMessage.sequence_number.desc()).first()
+        next_seq = (last.sequence_number + 1) if last else 1
+
+        user_msg = ChatMessage(
+            node_id=node_id,
+            sequence_number=next_seq,
+            conversation_version=node.conversation_version,
+            role="user",
+            message_kind="manual_user",
+            content=content,
+            status="completed",
+        )
+        db.add(user_msg)
+
+        if node.routing_mode == "human_gate":
+            node.status = "awaiting_route"
+        else:
+            node.status = "idle"
+        node.last_error = None
+        db.commit()
+        db.refresh(user_msg)
+
+        if node.routing_mode == "auto":
+            # Fan out to all on_complete edges immediately (synchronous — human nodes are fast)
+            on_complete = [e for e in edge_snapshot if e["trigger"] == "on_complete"]
+            for edge_entry in on_complete:
+                _deliver_routed_message(node_id, user_msg.id, edge_entry, db)
+
+        return RedirectResponse(f"/workspaces/{ws_id}", status_code=303)
+
+    # Agent node path — existing code below unchanged
     # Next sequence number
     last = db.query(ChatMessage).filter(
         ChatMessage.node_id == node_id,
@@ -681,6 +847,17 @@ def _execute_node_send(node_id: int, asst_msg_id: int, edge_snapshot: list, db):
         asst_msg.content = content
         asst_msg.status = "completed"
         asst_msg.completed_at = datetime.now(timezone.utc)
+
+        # Re-read node to get fresh routing_mode
+        fresh_node = db.query(ChatNode).filter(ChatNode.id == node_id).first()
+        if fresh_node:
+            node = fresh_node
+
+        if node.routing_mode == "human_gate":
+            node.status = "awaiting_route"
+            node.last_error = None
+            db.commit()
+            return
 
         # Partition edges by trigger
         on_complete_edges = [e for e in edge_snapshot if e["trigger"] == "on_complete"]

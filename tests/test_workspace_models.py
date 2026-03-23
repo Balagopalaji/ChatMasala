@@ -703,6 +703,89 @@ def test_multiple_on_complete_edges_fan_out(db):
     assert c_count == 1
 
 
+def test_human_gate_mode_sets_awaiting_route(db):
+    """With routing_mode=human_gate, _execute_node_send sets awaiting_route instead of delivering."""
+    import unittest.mock as mock
+    from app.routes.workspaces import _execute_node_send
+    from app.agents.cli_runner import RunResult
+
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+
+    profile = AgentProfile(name="Phg", provider="test", command_template="echo")
+    db.add(profile)
+    db.commit()
+
+    node_a = ChatNode(workspace_id=ws.id, name="A", agent_profile_id=profile.id,
+                      order_index=0, routing_mode="human_gate")
+    node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1)
+    db.add_all([node_a, node_b])
+    db.commit()
+
+    edge = NodeEdge(source_node_id=node_a.id, target_node_id=node_b.id, trigger="on_complete", sort_order=0)
+    db.add(edge)
+    db.commit()
+
+    msg = ChatMessage(
+        node_id=node_a.id, sequence_number=1, conversation_version=1,
+        role="assistant", message_kind="assistant_reply", content="", status="running",
+    )
+    db.add(msg)
+    db.commit()
+
+    edge_snapshot = [{"edge_id": edge.id, "target_node_id": node_b.id, "trigger": "on_complete", "label": "", "sort_order": 0}]
+    fake_result = RunResult(stdout="Done.", stderr="", exit_code=0)
+    with mock.patch("app.routes.workspaces.run_agent", return_value=fake_result):
+        _execute_node_send(node_a.id, msg.id, edge_snapshot, db)
+
+    db.refresh(node_a)
+    assert node_a.status == "awaiting_route"
+    # No message should be delivered to node_b yet
+    assert db.query(ChatMessage).filter(ChatMessage.node_id == node_b.id).count() == 0
+
+
+def test_auto_mode_still_fans_out(db):
+    """With routing_mode=auto (default), delivery still fans out normally."""
+    import unittest.mock as mock
+    from app.routes.workspaces import _execute_node_send
+    from app.agents.cli_runner import RunResult
+
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+
+    profile = AgentProfile(name="Pauto", provider="test", command_template="echo")
+    db.add(profile)
+    db.commit()
+
+    node_a = ChatNode(workspace_id=ws.id, name="A", agent_profile_id=profile.id,
+                      order_index=0, routing_mode="auto")
+    node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1)
+    db.add_all([node_a, node_b])
+    db.commit()
+
+    edge = NodeEdge(source_node_id=node_a.id, target_node_id=node_b.id, trigger="on_complete", sort_order=0)
+    db.add(edge)
+    db.commit()
+
+    msg = ChatMessage(
+        node_id=node_a.id, sequence_number=1, conversation_version=1,
+        role="assistant", message_kind="assistant_reply", content="", status="running",
+    )
+    db.add(msg)
+    db.commit()
+
+    edge_snapshot = [{"edge_id": edge.id, "target_node_id": node_b.id, "trigger": "on_complete", "label": "", "sort_order": 0}]
+    fake_result = RunResult(stdout="Done.", stderr="", exit_code=0)
+    with mock.patch("app.routes.workspaces.run_agent", return_value=fake_result):
+        _execute_node_send(node_a.id, msg.id, edge_snapshot, db)
+
+    db.refresh(node_a)
+    assert node_a.status == "idle"
+    assert db.query(ChatMessage).filter(ChatMessage.node_id == node_b.id).count() == 1
+
+
 def test_multiple_on_no_go_edges_fan_out(db):
     """With multiple on_no_go edges and NO_GO sentinel, all no_go targets receive the message."""
     import unittest.mock as mock
@@ -753,3 +836,40 @@ def test_multiple_on_no_go_edges_fan_out(db):
     # both on_no_go targets should receive the message
     assert db.query(ChatMessage).filter(ChatMessage.node_id == node_c.id).count() == 1
     assert db.query(ChatMessage).filter(ChatMessage.node_id == node_d.id).count() == 1
+
+
+def test_human_node_routes_user_message_without_agent(db):
+    """Human node: send_message delivers user message to on_complete edges without running agent."""
+    import unittest.mock as mock
+    from app.routes.workspaces import _deliver_routed_message
+
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+
+    node_a = ChatNode(workspace_id=ws.id, name="Human", order_index=0, node_type="human", routing_mode="auto")
+    node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1)
+    db.add_all([node_a, node_b])
+    db.commit()
+
+    edge = NodeEdge(source_node_id=node_a.id, target_node_id=node_b.id, trigger="on_complete", sort_order=0)
+    db.add(edge)
+    db.commit()
+
+    # Simulate the human node send_message logic directly
+    user_msg = ChatMessage(
+        node_id=node_a.id, sequence_number=1, conversation_version=1,
+        role="user", message_kind="manual_user", content="human decision", status="completed",
+    )
+    db.add(user_msg)
+    node_a.status = "idle"
+    db.commit()
+    db.refresh(user_msg)
+
+    edge_entry = {"edge_id": edge.id, "target_node_id": node_b.id, "trigger": "on_complete", "label": "", "sort_order": 0}
+    _deliver_routed_message(node_a.id, user_msg.id, edge_entry, db)
+
+    routed = db.query(ChatMessage).filter(ChatMessage.node_id == node_b.id).first()
+    assert routed is not None
+    assert routed.content == "human decision"
+    assert routed.message_kind == "auto_route"

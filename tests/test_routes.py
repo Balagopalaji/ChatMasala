@@ -663,6 +663,75 @@ def test_set_no_go_edge_creates_node_edge(client_and_db):
     assert edge.target_node_id == node_b.id
 
 
+def test_set_routing_mode_human_gate(client_and_db):
+    """POST .../routing-mode sets human_gate on the node."""
+    from app.models import Workspace, ChatNode
+
+    client, db = client_and_db
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+    db.refresh(ws)
+
+    node = ChatNode(workspace_id=ws.id, name="N", order_index=0)
+    db.add(node)
+    db.commit()
+
+    resp = client.post(
+        f"/workspaces/{ws.id}/nodes/{node.id}/routing-mode",
+        data={"routing_mode": "human_gate"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+
+    db.expire(node)
+    node = db.query(ChatNode).filter(ChatNode.id == node.id).first()
+    assert node.routing_mode == "human_gate"
+
+
+def test_route_output_delivers_to_selected_edges(client_and_db):
+    """POST .../route-output delivers last assistant message to selected edge targets."""
+    from app.models import Workspace, ChatNode, ChatMessage, NodeEdge
+
+    client, db = client_and_db
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+    db.refresh(ws)
+
+    node_a = ChatNode(workspace_id=ws.id, name="A", order_index=0, status="awaiting_route")
+    node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1)
+    node_c = ChatNode(workspace_id=ws.id, name="C", order_index=2)
+    db.add_all([node_a, node_b, node_c])
+    db.commit()
+
+    edge1 = NodeEdge(source_node_id=node_a.id, target_node_id=node_b.id, trigger="on_complete", sort_order=0)
+    edge2 = NodeEdge(source_node_id=node_a.id, target_node_id=node_c.id, trigger="on_complete", sort_order=1)
+    db.add_all([edge1, edge2])
+    db.commit()
+
+    src_msg = ChatMessage(
+        node_id=node_a.id, sequence_number=1, conversation_version=1,
+        role="assistant", message_kind="assistant_reply", content="result", status="completed",
+    )
+    db.add(src_msg)
+    db.commit()
+
+    # Select only edge1
+    resp = client.post(
+        f"/workspaces/{ws.id}/nodes/{node_a.id}/route-output",
+        data={"edge_ids": str(edge1.id), "message_id": str(src_msg.id)},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+
+    db.expire_all()
+    assert db.query(ChatMessage).filter(ChatMessage.node_id == node_b.id).count() == 1
+    assert db.query(ChatMessage).filter(ChatMessage.node_id == node_c.id).count() == 0
+    node_a = db.query(ChatNode).filter(ChatNode.id == node_a.id).first()
+    assert node_a.status == "idle"
+
+
 def test_workspace_status_no_loop_count(client_and_db):
     """GET /workspaces/{ws_id}/status does not return loop_count in node data."""
     from app.models import Workspace, ChatNode
@@ -684,3 +753,84 @@ def test_workspace_status_no_loop_count(client_and_db):
     data = resp.json()
     node_data = data["nodes"][0]
     assert "loop_count" not in node_data
+
+
+def test_set_node_type_human(client_and_db):
+    """POST .../node-type sets node_type=human."""
+    from app.models import Workspace, ChatNode
+
+    client, db = client_and_db
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+    db.refresh(ws)
+
+    node = ChatNode(workspace_id=ws.id, name="N", order_index=0)
+    db.add(node)
+    db.commit()
+
+    resp = client.post(
+        f"/workspaces/{ws.id}/nodes/{node.id}/node-type",
+        data={"node_type": "human"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+
+    db.expire(node)
+    node = db.query(ChatNode).filter(ChatNode.id == node.id).first()
+    assert node.node_type == "human"
+
+
+def test_send_blocked_when_awaiting_route(client_and_db):
+    """POST .../send returns 400 when node is in awaiting_route status."""
+    from app.models import Workspace, ChatNode
+
+    client, db = client_and_db
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+    db.refresh(ws)
+
+    node = ChatNode(workspace_id=ws.id, name="N", order_index=0, status="awaiting_route")
+    db.add(node)
+    db.commit()
+
+    resp = client.post(
+        f"/workspaces/{ws.id}/nodes/{node.id}/send",
+        data={"content": "hello"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 400
+    assert "awaiting" in resp.text.lower()
+
+
+def test_human_node_send_message_no_agent_needed(client_and_db):
+    """POST .../send on a human node succeeds without an agent profile assigned."""
+    from app.models import Workspace, ChatNode, ChatMessage
+
+    client, db = client_and_db
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+    db.refresh(ws)
+
+    node = ChatNode(workspace_id=ws.id, name="Human", order_index=0, node_type="human")
+    db.add(node)
+    db.commit()
+
+    resp = client.post(
+        f"/workspaces/{ws.id}/nodes/{node.id}/send",
+        data={"content": "my decision"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+
+    msgs = db.query(ChatMessage).filter(ChatMessage.node_id == node.id).all()
+    assert len(msgs) == 1
+    assert msgs[0].role == "user"
+    assert msgs[0].content == "my decision"
+    assert msgs[0].status == "completed"
+
+    db.expire(node)
+    node = db.query(ChatNode).filter(ChatNode.id == node.id).first()
+    assert node.status == "idle"

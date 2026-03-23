@@ -133,6 +133,10 @@ class ChatNode(Base):
     status = Column(String, nullable=False, default="idle")  # idle | running | needs_attention
     last_error = Column(Text, nullable=True)
     conversation_version = Column(Integer, default=1, nullable=False)
+    routing_mode = Column(String, nullable=False, default="auto")
+    # "auto" | "human_gate"
+    node_type = Column(String, nullable=False, default="agent")
+    # "agent" | "human"
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
