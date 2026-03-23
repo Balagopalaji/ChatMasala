@@ -1,6 +1,6 @@
 # ChatMasala Workspace-First Build Plan
 
-> Active execution plan for the next product pass.
+> Active execution plan for the next product pass. **Pass A (multi-output edges) is the active next implementation pass — see "Pass A: Multi-Output Edges" section below.**
 >
 > Source of truth for this pass: current non-archive repo code, the clarified product intent from the latest design discussion, and the visual direction shown by the mockups in `tmp/Multi-Chat Workflow Builder/`.
 >
@@ -8,6 +8,141 @@
 > - `docs/archive/**`
 > - old run/thread assumptions that conflict with this plan
 > - `tmp/**` as production code source
+
+## Node Recall / Revisit Override (supersedes Phase 2 routing)
+
+> This section supersedes the Pass 2 Loop / Routing Model (Phase 10) and any earlier guidance that introduced `output_node_id`, `loop_node_id`, `max_loops`, and `loop_count`. Where this section conflicts with any earlier routing guidance in this document, **this section wins**.
+
+### Removed fields
+
+The following fields have been removed from `ChatNode`:
+- `output_node_id`, `loop_node_id`, `max_loops`, `loop_count`
+
+### NodeEdge table
+
+Routing is now handled by a dedicated `NodeEdge` table:
+
+| Field | Notes |
+|---|---|
+| `id` | PK |
+| `source_node_id` | FK → `chat_nodes.id` (CASCADE) |
+| `target_node_id` | FK → `chat_nodes.id` (CASCADE) |
+| `edge_type` | `"default"` or `"no_go"` *(renamed to trigger in Pass A)* |
+| `created_at` / `updated_at` | UTC timestamps |
+
+`UniqueConstraint("source_node_id", "edge_type")` — one default edge and one no_go edge per source node. *(see Pass A — edge_type renamed to trigger, uniqueness constraint removed)*
+
+### Routing semantics
+
+- Same-node recall revisits the same `ChatNode.id` — does **not** create a new node.
+- Routed delivery appends a new `ChatMessage` into the target node's existing transcript/context.
+- **Inbound delivery never auto-runs the target node.** Target must be triggered manually.
+- `_auto_run_node()` *(removed)* and `_deliver_auto_route()` *(removed)* are removed; replaced by `_deliver_routed_message()` (append-only).
+- `import_last_message` is append-only; no auto-run.
+
+### GO / NO_GO sentinel detection
+
+If a `no_go` edge is present on the source node, inspect the final trimmed line of assistant output after success: *(Pass A renames these to on_complete / on_no_go)*
+- `GO` → deliver to `default` edge target (append-only, no auto-run) *(Pass A: on_complete)*
+- `NO_GO` → deliver to `no_go` edge target (append-only, no auto-run) *(Pass A: on_no_go)*
+- Neither → set source `needs_attention`, no delivery
+
+If no `no_go` edge is present, deliver to `default` edge unconditionally (no sentinel check). *(Pass A: if no on_no_go edges present, deliver to all on_complete edges unconditionally)*
+
+### UI exposure
+
+One `default` edge ("On complete") and one `no_go` edge ("On NO_GO") per source node. Route endpoints: `POST .../edges/default` and `POST .../edges/no-go`. *(superseded by Pass A — replaced with general edge CRUD and ordered edge list UI)*
+
+---
+
+## Pass A: Multi-Output Edges (next implementation pass)
+
+> This section supersedes the "Node Recall / Revisit Override" section above on all routing model details. Where they conflict, **Pass A wins**.
+
+### Intent
+
+- Support multiple outbound edges per source node
+- Preserve same-node revisit (multiple upstream nodes → same target transcript)
+- Keep GO / NO_GO sentinel routing contract
+- Do **not** add human gate yet
+- Do **not** add human input node type yet
+- Do **not** add `routing_mode` or `awaiting_route` status yet
+
+### Model changes
+
+**`NodeEdge` table — replace `edge_type` with `trigger` + add `label` and `sort_order`:**
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | Integer PK | unchanged |
+| `source_node_id` | FK `chat_nodes.id` CASCADE | unchanged |
+| `target_node_id` | FK `chat_nodes.id` CASCADE | unchanged |
+| `trigger` | String | replaces `edge_type`; values: `"on_complete"` \| `"on_no_go"` |
+| `label` | String | user-defined human-readable name, nullable/empty ok |
+| `sort_order` | Integer | for ordering edges in the UI; default 0 |
+| `created_at` / `updated_at` | DateTime | unchanged |
+
+**Removed constraints:**
+- Remove `UniqueConstraint("source_node_id", "edge_type")` — multiple edges per trigger type are now allowed
+- Remove `CheckConstraint("edge_type IN ('default', 'no_go')")` — replaced by trigger check
+
+**New constraint:**
+- `CheckConstraint("trigger IN ('on_complete', 'on_no_go')", name="ck_node_edge_trigger")`
+
+**No changes to `ChatNode`** — `routing_mode`, `node_type`, `awaiting_route` are deferred to Pass B/C.
+
+### Runtime behavior
+
+- **`on_complete` edges**: after a successful agent run where the final line is NOT `NO_GO`, deliver to **all** edges with `trigger = "on_complete"` (fan-out)
+- **`on_no_go` edges**: after a successful agent run where the final line IS `NO_GO`, deliver to **all** edges with `trigger = "on_no_go"` (fan-out)
+- If **no `on_no_go` edges** are present: no sentinel check — deliver to all `on_complete` edges unconditionally on success
+- If `on_no_go` edges **are** present but output ends with neither `GO` nor `NO_GO`: set source `needs_attention`, no delivery
+- Inbound delivery remains **append-only** — target nodes are never auto-run
+
+### API changes
+
+Replace the two fixed edge endpoints (`/edges/default`, `/edges/no-go`) with a general edge CRUD:
+
+| Endpoint | Action |
+|---|---|
+| `POST /workspaces/{ws_id}/nodes/{node_id}/edges` | Add a new edge (`target_node_id`, `trigger`, `label`, `sort_order`) |
+| `POST /workspaces/{ws_id}/nodes/{node_id}/edges/{edge_id}/update` | Update edge label / target / trigger / sort_order |
+| `POST /workspaces/{ws_id}/nodes/{node_id}/edges/{edge_id}/delete` | Remove edge |
+
+### UI changes
+
+Replace the current two-dropdown routing section in each node's chat panel with an ordered edge list:
+
+- Each row: **Label** (text input) | **Trigger** (`on_complete` / `on_no_go` dropdown) | **Target** (node dropdown) | **[Remove]** button
+- **[+ Add destination]** button to append a new row
+- Reorder controls (up/down buttons) — no drag/drop required in this pass
+- Remove the old "On complete" and "On NO_GO" dropdown controls
+
+Workflow strip chip: show edge count and/or first few target names (e.g. `→ Critic, Brainstorm A`).
+
+### Explicit defers (do not implement in this pass)
+
+- `routing_mode` field on `ChatNode`
+- `awaiting_route` status
+- `awaiting_input` status
+- `node_type = human` / human input nodes
+- Visual aliasing / graph rendering beyond chip labels
+- Arbitrary general graph engine
+
+### Validation checklist
+
+- [ ] Multiple `on_complete` edges fan out to all targets on success
+- [ ] Multiple `on_no_go` edges fan out to all targets on NO_GO
+- [ ] Single `on_complete` edge (no `on_no_go`) delivers unconditionally — no sentinel check
+- [ ] Same node can receive deliveries from multiple upstream nodes (same-node revisit)
+- [ ] Provenance (`↪ routed from`) remains visible on delivered messages
+- [ ] Manual import (`↩ imported from`) remains distinct from routed delivery
+- [ ] Node delete cascades to remove all its inbound and outbound edges
+- [ ] Cross-workspace edge creation is rejected
+- [ ] Edge label is displayed in node panel and workflow chip
+- [ ] Tests updated to cover fan-out behavior and edge CRUD endpoints
+
+---
 
 ## 1. Product Summary
 
@@ -101,7 +236,7 @@ Important distinctions:
 
 - **Automatic routing**
   - when node A finishes, its output may be delivered to node B
-  - for the near-term pass, use only **one downstream automatic route**
+  - for the near-term pass, use only **one downstream automatic route** *(superseded — Pass A allows multiple outbound edges per node; fan-out to all matching edges)*
   - do not auto-run chains yet
 
 - **Manual import**
@@ -158,7 +293,7 @@ Keep this pass intentionally narrow.
 - choose agent per node
 - send messages in a node
 - reset/refresh a node conversation
-- one downstream automatic route per node
+- one downstream automatic route per node *(superseded — Pass A allows multiple labeled outbound edges per node)*
 - manual import of the last assistant message from another node
 - workspace browse/pick flow
 - navigation cleanup
@@ -167,7 +302,7 @@ Keep this pass intentionally narrow.
 ### Do Not Build Now
 
 - arbitrary graph engine
-- multi-output routing
+- multi-output routing *(superseded — Pass A implements multi-output edges; see Pass A section above)*
 - downstream auto-execution chains
 - drag/drop graph editing
 - rich arrow/canvas flowchart engine
@@ -299,7 +434,7 @@ Recommended fields:
 - `workspace_id`
 - `name`
 - `agent_profile_id` nullable
-- `downstream_node_id` nullable
+- `downstream_node_id` nullable *(removed — replaced by `NodeEdge` table in Node Recall refactor; see Pass A for current edge model)*
 - `order_index`
 - `status`
   - `idle`
@@ -312,8 +447,8 @@ Recommended fields:
 
 Important rules:
 
-- one downstream automatic route only in this pass
-- no edge table yet
+- one downstream automatic route only in this pass *(superseded — Pass A allows multiple labeled outbound edges per node)*
+- no edge table yet *(superseded — `NodeEdge` table is the active routing model; see Pass A)*
 - a node may exist with no downstream route
 - a node may exist with no selected agent until configured
 
@@ -400,7 +535,7 @@ The model should not block later ideas such as:
 
 - orchestrator node
 - scribe node
-- multi-output routing
+- multi-output routing *(superseded — Pass A makes multi-output edges active now; retain this line only as historical context for earlier scope)*
 - richer flow visualisation
 - inbox / revived ideas
 
@@ -631,7 +766,7 @@ Preferred implementation direction:
 
 ### Required outcomes
 
-- [x] each node can set one downstream automatic route
+- [x] each node can set one downstream automatic route *(superseded — Pass A expands this to multiple outbound edges per node)*
 - [x] manual import of the latest assistant message from another node works
 - [x] output routing and manual import are clearly distinct concepts in UI and code
 - [x] imported or auto-routed messages visibly show their source node/message provenance
@@ -640,7 +775,7 @@ Preferred implementation direction:
 
 ### Explicit deferrals
 
-- [ ] no multi-output routing
+- [ ] no multi-output routing *(superseded — Pass A implements multi-output edges)*
 - [ ] no auto-run chains
 - [ ] no import-last-N yet
 - [ ] no orchestrator/scribe node types yet
@@ -700,9 +835,9 @@ It is desirable, but not first priority. The synchronized workspace model matter
 
 ### Multi-output routing
 
-**Later**
+**Now (Pass A)** *(superseded — previously deferred, now active in Pass A)*
 
-Important for the long-term “true routing app” idea, but too much for this pass.
+Multiple labeled outbound edges per source node are implemented in Pass A. See Pass A section for full spec.
 
 ### Chat reset / refresh
 
@@ -736,18 +871,18 @@ This scope is still appropriately simple **if** the pass stops at:
 
 - one workspace model
 - generic node/chat behavior
-- one downstream route per node
+- one downstream route per node *(superseded — Pass A allows multiple outbound edges; this check was written before the routing refactor)*
 - manual import of the latest assistant message only
 - reset/refresh support
 - no drag/drop
-- no multi-output
+- no multi-output *(superseded — Pass A implements multi-output edges)*
 - no orchestrator/scribe implementation yet
 - no provider-auth platform explosion
 
 Complexity spikes if this pass tries to combine any two of:
 
 - drag/drop graph editing
-- multi-output routing
+- multi-output routing *(superseded — Pass A now implements this; this warning reflects the pre-Pass-A scope)*
 - auto-run chains
 - orchestrator/scribe implementation
 - browser extension / MCP / inbox work
@@ -766,9 +901,9 @@ Complexity spikes if this pass tries to combine any two of:
 > Implementation order: usability first → routing/loop model → provider/agent defaults → visual polish. Do not start visual restyling before structural changes are complete.
 >
 > Important override: where Pass 2 conflicts with earlier Pass 1 routing/model guidance in this document, Pass 2 wins. In particular:
-> - `downstream_node_id` is superseded by `output_node_id` and `loop_node_id`
+> - `downstream_node_id` is superseded by `output_node_id` and `loop_node_id` *(superseded — see Node Recall / Revisit Override)*
 > - output routes remain message-delivery-only
-> - loop-back routes are the one allowed auto-execution path in this pass
+> - loop-back routes are the one allowed auto-execution path in this pass *(superseded — see Node Recall / Revisit Override)*
 
 ## Pass 2 — Decision Log
 
@@ -776,8 +911,8 @@ Complexity spikes if this pass tries to combine any two of:
 
 Output routes and loop-back routes have different auto-execution rules:
 
-- **Output route** (`output_node_id`): message delivery only. When a node completes and routes output to another node, the output is delivered as a new message in the target node. The target node does **not** auto-run. The user triggers the next send manually.
-- **Loop route** (`loop_node_id`): auto-execute. When a node detects `NO_GO`, the loop target is automatically run with the routed message as input. This is the one permitted auto-execution in this pass. Without it, the build→review→build cycle requires manual intervention at every step, which defeats the purpose.
+- **Output route** (`output_node_id`) *(removed — field deleted in Node Recall refactor)*: message delivery only. When a node completes and routes output to another node, the output is delivered as a new message in the target node. The target node does **not** auto-run. The user triggers the next send manually.
+- **Loop route** (`loop_node_id`) *(removed — field deleted in Node Recall refactor)*: auto-execute. When a node detects `NO_GO`, the loop target is automatically run with the routed message as input. This is the one permitted auto-execution in this pass. Without it, the build→review→build cycle requires manual intervention at every step, which defeats the purpose. *(removed — auto-run removed in Node Recall refactor)*
 
 This resolves the conflict with the earlier "message delivery only" scope: that rule applies to output routes. Loop-back is a narrow, deliberate exception.
 
@@ -785,10 +920,10 @@ This resolves the conflict with the earlier "message delivery only" scope: that 
 
 When a node has a `loop_node_id` set, the system checks the final non-empty line of the assistant response after trimming whitespace:
 
-- If the final line is exactly `GO` (case-insensitive): route to `output_node_id` (message delivery, no auto-run of target)
-- If the final line is exactly `NO_GO` (case-insensitive): route to `loop_node_id` and auto-run target
+- If the final line is exactly `GO` (case-insensitive): route to `output_node_id` *(removed — Node Recall refactor)* (message delivery, no auto-run of target)
+- If the final line is exactly `NO_GO` (case-insensitive): route to `loop_node_id` *(removed — Node Recall refactor)* and auto-run target *(removed — auto-run removed in Node Recall refactor)*
 - If neither sentinel is present: stop auto-routing, set node status to `needs_attention`, and record an error note like "Looped node did not end with GO or NO_GO"
-- If `loop_count >= max_loops`: stop looping regardless of sentinel, route to `output_node_id`, set node status to `needs_attention`
+- If `loop_count >= max_loops` *(removed — Node Recall refactor)*: stop looping regardless of sentinel, route to `output_node_id` *(removed — Node Recall refactor)*, set node status to `needs_attention`
 
 The instruction file or system prompt for any looped node **must** tell the agent to always end its response with `GO` or `NO_GO`. This is the agent's contract with the routing system. It is not inferred, guessed, or parsed from prose.
 
@@ -796,11 +931,13 @@ The instruction file or system prompt for any looped node **must** tell the agen
 
 Each chat node has three distinct relationships to other nodes:
 
+*(superseded — output_node_id and loop_node_id removed in Node Recall refactor; routing now uses NodeEdge table with trigger = on_complete / on_no_go — see Pass A)*
+
 | Relationship | Storage | Meaning | Trigger |
 |---|---|---|---|
 | Input from | Derived in UI/state, not a single persisted FK | Informational: which upstream node(s) feed this one | Derived from output/loop relationships and recent provenance |
-| Output to | `output_node_id` | Where to deliver output when GO or no loop is set | Message delivery; target does not auto-run |
-| Loop to | `loop_node_id` | Where to send back on NO_GO | Message delivery + auto-run of loop target |
+| Output to | `output_node_id` *(removed — Node Recall refactor)* | Where to deliver output when GO or no loop is set | Message delivery; target does not auto-run |
+| Loop to | `loop_node_id` *(removed — Node Recall refactor)* | Where to send back on NO_GO | Message delivery + auto-run of loop target *(removed — Node Recall refactor)* |
 
 These are shown as three separate visible elements in the UI, not one combined "route" dropdown.
 
@@ -914,7 +1051,7 @@ The mockup uses a white/near-white background with dark text and clean spacing. 
 #### Default node behavior
 
 - [x] When a new node is added to a workspace, it automatically gets the first available builtin agent (Claude). It should never be created without an agent if any builtins exist.
-- [x] When a new node is added and the workspace already has at least one other node, the previous node's `output_node_id` is automatically set to point to the new node. This can be changed but should be the default.
+- [x] When a new node is added and the workspace already has at least one other node, the previous node's `output_node_id` is automatically set to point to the new node. This can be changed but should be the default. *(superseded — output_node_id removed in Node Recall refactor; edge now stored in NodeEdge table)*
 
 #### Sidebar persistence
 
@@ -931,31 +1068,31 @@ The mockup uses a white/near-white background with dark text and clean spacing. 
 
 ## Phase 10 — Loop / Routing Model
 
-**Purpose:** replace the single `downstream_node_id` with three separate relationships (input, output, loop), implement GO/NO_GO sentinel detection, and wire up loop auto-execution.
+**Purpose:** replace the single `downstream_node_id` with three separate relationships (input, output, loop), implement GO/NO_GO sentinel detection, and wire up loop auto-execution. *(superseded — output_node_id/loop_node_id approach replaced by NodeEdge table in Node Recall refactor; auto-execution removed)*
 
 ### Likely files
 
 - `app/models.py` (ChatNode schema change)
-- `app/routes/workspaces.py` (`_execute_node_send`, `_deliver_auto_route`, new `_execute_loop_send`)
+- `app/routes/workspaces.py` (`_execute_node_send`, `_deliver_auto_route` *(removed)*, new `_execute_loop_send` *(removed — replaced by _deliver_routed_message in Node Recall refactor)*)
 - `app/templates/workspace_detail.html` (three separate relationship controls)
 - `tests/test_workspace_models.py`
 
 ### Data model changes
 
-Replace `downstream_node_id` on `ChatNode` with:
+Replace `downstream_node_id` on `ChatNode` with: *(superseded — see Node Recall / Revisit Override; these fields were removed and replaced by the NodeEdge table)*
 
 ```
-output_node_id    Integer FK(chat_nodes.id) nullable   -- where to route on GO or unconditionally
-loop_node_id      Integer FK(chat_nodes.id) nullable   -- where to loop back on NO_GO
-max_loops         Integer default 3                    -- circuit breaker
-loop_count        Integer default 0                    -- current loop iteration for this conversation_version
+output_node_id    Integer FK(chat_nodes.id) nullable   -- where to route on GO or unconditionally  *(removed — field deleted in Node Recall refactor)*
+loop_node_id      Integer FK(chat_nodes.id) nullable   -- where to loop back on NO_GO  *(removed — field deleted in Node Recall refactor)*
+max_loops         Integer default 3                    -- circuit breaker  *(removed — field deleted in Node Recall refactor)*
+loop_count        Integer default 0                    -- current loop iteration for this conversation_version  *(removed — field deleted in Node Recall refactor)*
 ```
 
 Rules:
-- `output_node_id` and `loop_node_id` may be the same node or different nodes.
-- `loop_count` resets to 0 when `conversation_version` increments (i.e. on reset).
-- A node with no `loop_node_id` behaves exactly as before — no sentinel detection, output is delivered to `output_node_id` on completion (message delivery only, no auto-run of target).
-- A node with `loop_node_id` set enables sentinel detection and loop auto-execution.
+- `output_node_id` and `loop_node_id` may be the same node or different nodes. *(removed — Node Recall refactor)*
+- `loop_count` resets to 0 when `conversation_version` increments (i.e. on reset). *(removed — Node Recall refactor)*
+- A node with no `loop_node_id` behaves exactly as before — no sentinel detection, output is delivered to `output_node_id` on completion (message delivery only, no auto-run of target). *(removed — Node Recall refactor)*
+- A node with `loop_node_id` set enables sentinel detection and loop auto-execution. *(removed — Node Recall refactor)*
 - `Input from` is a derived display concept and should not be stored as a single `input_node_id` field on `ChatNode`.
 
 A clean DB reset is acceptable to apply this schema change. Do not add a migration framework.
@@ -964,7 +1101,7 @@ A clean DB reset is acceptable to apply this schema change. Do not add a migrati
 
 #### Data model
 
-- [x] `ChatNode` has `output_node_id`, `loop_node_id`, `max_loops`, and `loop_count` fields.
+- [x] `ChatNode` has `output_node_id`, `loop_node_id`, `max_loops`, and `loop_count` fields. *(superseded — removed in Node Recall refactor; field deleted)*
 - [x] `downstream_node_id` is removed.
 - [x] Workspace isolation checks are updated to use the new field names.
 - [x] Inbound route cleanup on node deletion covers all new route FKs.
@@ -972,39 +1109,39 @@ A clean DB reset is acceptable to apply this schema change. Do not add a migrati
 
 #### GO / NO_GO detection
 
-- [x] After a node with `loop_node_id` set completes a send, the final non-empty trimmed line of the assistant response is checked.
-- [x] Exact match `GO` (case-insensitive) → route output to `output_node_id` as a delivered message (no auto-run of target).
-- [x] Exact match `NO_GO` (case-insensitive) → increment `loop_count`; if `loop_count >= max_loops`, route to `output_node_id` and set node to `needs_attention` with an error note "Max loops reached"; otherwise deliver to `loop_node_id` and auto-run the loop target.
-- [x] Neither sentinel present and `loop_node_id` is set → do not auto-route; set node to `needs_attention` with an error note like "Looped node did not end with GO or NO_GO".
-- [x] Node with no `loop_node_id` → no sentinel detection; route output to `output_node_id` unconditionally (message delivery, no auto-run).
+- [x] After a node with `loop_node_id` *(removed — Node Recall refactor)* set completes a send, the final non-empty trimmed line of the assistant response is checked.
+- [x] Exact match `GO` (case-insensitive) → route output to `output_node_id` *(removed — Node Recall refactor)* as a delivered message (no auto-run of target).
+- [x] Exact match `NO_GO` (case-insensitive) → increment `loop_count` *(removed — Node Recall refactor)*; if `loop_count >= max_loops` *(removed — Node Recall refactor)*, route to `output_node_id` *(removed — Node Recall refactor)* and set node to `needs_attention` with an error note "Max loops reached"; otherwise deliver to `loop_node_id` *(removed — Node Recall refactor)* and auto-run the loop target *(removed — auto-run removed in Node Recall refactor)*.
+- [x] Neither sentinel present and `loop_node_id` *(removed — Node Recall refactor)* is set → do not auto-route; set node to `needs_attention` with an error note like "Looped node did not end with GO or NO_GO".
+- [x] Node with no `loop_node_id` *(removed — Node Recall refactor)* → no sentinel detection; route output to `output_node_id` *(removed — Node Recall refactor)* unconditionally (message delivery, no auto-run).
 
-#### Loop auto-execution
+#### Loop auto-execution *(removed — auto-run removed in Node Recall refactor; all delivery is now append-only)*
 
-- [x] When the loop target receives the routed message, the loop target node is automatically run (as if the user pressed Send with the routed content as the new user message). This is the only permitted auto-execution in this pass.
-- [x] Loop auto-execution respects the same guards as manual sends: node must not already be `running`, must have an agent assigned.
-- [x] If the loop target has no agent, delivery still happens but auto-run does not; node status is set to `needs_attention`.
+- [x] When the loop target receives the routed message, the loop target node is automatically run (as if the user pressed Send with the routed content as the new user message). This is the only permitted auto-execution in this pass. *(removed — Node Recall refactor)*
+- [x] Loop auto-execution respects the same guards as manual sends: node must not already be `running`, must have an agent assigned. *(removed — Node Recall refactor)*
+- [x] If the loop target has no agent, delivery still happens but auto-run does not; node status is set to `needs_attention`. *(removed — Node Recall refactor)*
 
 #### UI
 
-- [x] Each chat panel shows three separate relationship controls:
+- [x] Each chat panel shows three separate relationship controls: *(superseded — replaced by ordered edge list in Pass A)*
   - **Input from:** read-only label or chips showing which node(s) currently feed this one (or "—" if none)
-  - **Output to:** dropdown to select `output_node_id` (options: No output, [other nodes])
-  - **Loop to:** dropdown to select `loop_node_id` (options: No loop, [other nodes]) + a `Max loops` number input (only shown when a loop target is selected)
-- [x] The workflow strip shows a visual loop indicator around nodes that form a loop (orange dashed border enclosing all nodes between `loop_node_id` source and target, with a "Loop max: N" badge).
-- [x] When `loop_count > 0` on a running loop, the badge updates to show "Loop N/max".
+  - **Output to:** dropdown to select `output_node_id` (options: No output, [other nodes]) *(removed — field deleted in Node Recall refactor)*
+  - **Loop to:** dropdown to select `loop_node_id` (options: No loop, [other nodes]) + a `Max loops` number input (only shown when a loop target is selected) *(removed — field deleted in Node Recall refactor)*
+- [x] The workflow strip shows a visual loop indicator around nodes that form a loop (orange dashed border enclosing all nodes between `loop_node_id` source and target, with a "Loop max: N" badge). *(superseded — loop_node_id removed in Node Recall refactor)*
+- [x] When `loop_count > 0` on a running loop, the badge updates to show "Loop N/max". *(removed — loop_count removed in Node Recall refactor)*
 
 ### Risks / gotchas
 
 - Loop auto-execution must use its own DB session (background task pattern), same as manual sends.
 - DO NOT auto-run the output target. Only the loop target auto-runs.
-- Changing `loop_node_id` or `output_node_id` affects future sends only. It does not retroactively affect a currently running send.
+- Changing `loop_node_id` *(removed — Node Recall refactor)* or `output_node_id` *(removed — Node Recall refactor)* affects future sends only. It does not retroactively affect a currently running send.
 - Prevent infinite loops: the `max_loops` circuit breaker is mandatory and must be checked before each loop-back.
-- Workspace isolation checks must cover all three new FK fields (`output_node_id`, `loop_node_id`) in `set_node_route` equivalents and `_deliver_auto_route` equivalents.
+- Workspace isolation checks must cover all three new FK fields (`output_node_id`, `loop_node_id`) *(removed — Node Recall refactor)* in `set_node_route` equivalents and `_deliver_auto_route` *(removed)* equivalents. *(superseded — see Node Recall / Revisit Override; isolation checks now apply to NodeEdge table)*
 
-#### Edge case: GO with no output_node_id
+#### Edge case: GO with no output_node_id *(superseded — output_node_id removed in Node Recall refactor; see Pass A on_complete edge semantics)*
 
-- If a node ends with `GO` and `output_node_id` is `None`: do not error. Stop on the current node, set status to `idle`, do not deliver any message. The workflow simply ends at this node.
-- If `loop_count >= max_loops` (circuit breaker fires) and `output_node_id` is `None`: same — set status to `needs_attention` with error note "Max loops reached — no output node configured", do not deliver any message. The user must manually inspect the node and configure an output or reset.
+- If a node ends with `GO` and `output_node_id` is `None`: do not error. Stop on the current node, set status to `idle`, do not deliver any message. The workflow simply ends at this node. *(superseded — Node Recall refactor)*
+- If `loop_count >= max_loops` *(removed — Node Recall refactor)* (circuit breaker fires) and `output_node_id` is `None` *(removed — Node Recall refactor)*: same — set status to `needs_attention` with error note "Max loops reached — no output node configured", do not deliver any message. The user must manually inspect the node and configure an output or reset. *(superseded — Node Recall refactor)*
 
 #### Edge case: loop target already running
 
@@ -1106,12 +1243,12 @@ A clean DB reset is acceptable to apply this schema change. Do not add a migrati
 
 - [x] Node chips in the workflow strip use the clean card style from the mockup: white background, 1px border, rounded corners, bold numbered circle, node name, agent name, status badge.
 - [x] Route arrows (`→`) between chips are simple, not heavy.
-- [x] Loop group is enclosed in an orange dashed border with a "Loop Max: N" orange pill badge at the top of the group.
+- [x] Loop group is enclosed in an orange dashed border with a "Loop Max: N" orange pill badge at the top of the group. *(superseded — loop_node_id/max_loops removed in Node Recall refactor)*
 
 #### Chat panels
 
 - [x] Panel headers are clean: node name (large, editable on click) + status badge aligned right.
-- [x] The "Input from", "Output to", and "Loop to" controls are clearly labelled and visually grouped below the header.
+- [x] The "Input from", "Output to", and "Loop to" controls are clearly labelled and visually grouped below the header. *(superseded — replaced by ordered edge list in Pass A)*
 - [x] The transcript area is well-padded and readable.
 - [x] The composer area at the bottom is clearly delineated: input grows with text, send button is prominent, agent picker is below or alongside the input.
 

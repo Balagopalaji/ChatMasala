@@ -1056,6 +1056,15 @@ details[open] > .advanced-toggle::before {
   font-weight: 500;
 }
 
+.workflow-node-chip-route {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 80px;
+}
+
 .chip-info {
   display: flex;
   flex-direction: column;
@@ -1194,17 +1203,6 @@ details[open] > .advanced-toggle::before {
   color: var(--text-primary);
   cursor: pointer;
   flex: 1;
-}
-
-.max-loops-input,
-.route-row input[type=number] {
-  width: 52px;
-  font-size: 12px;
-  padding: 3px 6px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--border-radius-sm);
-  background: var(--bg-card);
-  color: var(--text-primary);
 }
 
 /* Transcript */
@@ -2101,15 +2099,83 @@ details[open] > .bubble-details summary::before,
 .muted { color: var(--text-muted); font-style: italic; }
 
 /* =========================================================
-   Loop bracket overlays — drawn by JS (renderLoopBrackets)
+   Revisit bracket overlays — drawn by JS (renderRevisitBrackets)
    ========================================================= */
 /* Base styles are set inline by JS; these classes are used for
    selection/cleanup only. Multiple brackets stack with distinct colors. */
-.loop-bracket {
+.revisit-bracket {
   /* inline styles set by JS */
 }
-.loop-bracket-badge {
+.revisit-bracket-badge {
   /* inline styles set by JS */
+}
+
+/* =========================================================
+   Route note helper text
+   ========================================================= */
+.route-note {
+    font-size: 0.75rem;
+    color: var(--color-muted, #888);
+    margin-top: 0.25rem;
+    font-style: italic;
+}
+
+/* =========================================================
+   Message provenance styles
+   ========================================================= */
+.provenance-import {
+    color: var(--color-muted, #888);
+    font-size: 0.8em;
+}
+.provenance-route {
+    color: var(--color-muted, #888);
+    font-size: 0.8em;
+}
+
+/* =========================================================
+   Edge list UI (multi-edge routing)
+   ========================================================= */
+.edge-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.edge-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.edge-label-input {
+    width: 100px;
+    font-size: 0.8rem;
+}
+
+.add-edge-form {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    margin-top: 0.25rem;
+}
+
+.btn-danger-small {
+    font-size: 0.75rem;
+    padding: 0 0.3rem;
+    color: var(--color-danger, #c0392b);
+    background: none;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.route-sources {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    font-size: 0.85rem;
 }
 
 /* =========================================================

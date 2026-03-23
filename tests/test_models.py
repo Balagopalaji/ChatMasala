@@ -308,3 +308,37 @@ def test_chat_node_agent_role_id(db_session):
     assert node.agent_role_id == role.id
     assert node.agent_role is not None
     assert node.agent_role.slug == "planner"
+
+
+def test_node_edge_model_basic(tmp_path):
+    """NodeEdge ORM model creates and queries correctly."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from app.db import Base
+    from app.models import NodeEdge, ChatNode, Workspace
+
+    engine = create_engine(f"sqlite:///{tmp_path}/ne.db", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    Session = sessionmaker(bind=engine)
+    db = Session()
+
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+
+    node_a = ChatNode(workspace_id=ws.id, name="A", order_index=0)
+    node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1)
+    db.add_all([node_a, node_b])
+    db.commit()
+
+    edge = NodeEdge(source_node_id=node_a.id, target_node_id=node_b.id, trigger="on_complete")
+    db.add(edge)
+    db.commit()
+    db.refresh(edge)
+
+    assert edge.id is not None
+    assert edge.trigger == "on_complete"
+    assert edge.created_at is not None
+
+    db.close()
+    engine.dispose()

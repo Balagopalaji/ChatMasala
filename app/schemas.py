@@ -138,12 +138,20 @@ class WorkspaceRead(WorkspaceBase):
 # ---------------------------------------------------------------------------
 
 
+class NodeEdgeRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    source_node_id: int
+    target_node_id: int
+    trigger: str  # "on_complete" | "on_no_go"
+    label: Optional[str] = None
+    sort_order: int = 0
+
+
 class ChatNodeBase(BaseModel):
     name: str
     agent_profile_id: Optional[int] = None
     agent_role_id: Optional[int] = None
-    output_node_id: Optional[int] = None
-    loop_node_id: Optional[int] = None
     order_index: int = 0
 
 
@@ -162,8 +170,7 @@ class ChatNodeRead(ChatNodeBase):
     updated_at: datetime
     agent_role: Optional[AgentRoleResponse] = None
     agent_profile: Optional[AgentProfileResponse] = None
-    output_node: Optional["ChatNodeRead"] = None
-    loop_node: Optional["ChatNodeRead"] = None
+    outbound_edges: list[NodeEdgeRead] = []
 
 
 # ---------------------------------------------------------------------------

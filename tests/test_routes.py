@@ -223,8 +223,8 @@ def test_add_node_assigns_default_builtin_agent(client_and_db):
 
 
 def test_add_node_auto_links_previous_last_node(client_and_db):
-    """Adding a second node auto-links the previous last node's output_node_id."""
-    from app.models import Workspace, ChatNode
+    """Adding a second node auto-creates a default NodeEdge from the previous last node."""
+    from app.models import Workspace, ChatNode, NodeEdge
 
     client, db = client_and_db
 
@@ -243,16 +243,21 @@ def test_add_node_auto_links_previous_last_node(client_and_db):
     resp = client.post(f"/workspaces/{ws.id}/nodes", data={"name": "Node 2"}, follow_redirects=False)
     assert resp.status_code == 303
 
-    db.expire(node1)
-    node1 = db.query(ChatNode).filter(ChatNode.id == node1.id).first()
     node2 = db.query(ChatNode).filter(ChatNode.workspace_id == ws.id, ChatNode.name == "Node 2").first()
     assert node2 is not None
-    assert node1.output_node_id == node2.id
+
+    # Should have created a default NodeEdge from node1 to node2
+    edge = db.query(NodeEdge).filter(
+        NodeEdge.source_node_id == node1.id,
+        NodeEdge.target_node_id == node2.id,
+        NodeEdge.trigger == "on_complete",
+    ).first()
+    assert edge is not None
 
 
-def test_add_node_does_not_overwrite_existing_output_link(client_and_db):
-    """Adding a third node does NOT overwrite an existing output_node_id on the second node."""
-    from app.models import Workspace, ChatNode
+def test_add_node_does_not_overwrite_existing_default_edge(client_and_db):
+    """Adding a third node does NOT overwrite an existing default NodeEdge on the second node."""
+    from app.models import Workspace, ChatNode, NodeEdge
 
     client, db = client_and_db
 
@@ -269,18 +274,20 @@ def test_add_node_does_not_overwrite_existing_output_link(client_and_db):
     db.refresh(node1)
     db.refresh(node2)
 
-    # Manually set node2 to point to node1 (unusual but user-configured)
-    node2.output_node_id = node1.id
+    # Manually set node2 to have a default edge pointing somewhere (node1)
+    existing_edge = NodeEdge(source_node_id=node2.id, target_node_id=node1.id, trigger="on_complete")
+    db.add(existing_edge)
     db.commit()
+    existing_edge_id = existing_edge.id
 
-    # Adding node3 should NOT change node2's already-set output_node_id
+    # Adding node3 should NOT replace node2's existing default edge
     resp = client.post(f"/workspaces/{ws.id}/nodes", data={"name": "Node 3"}, follow_redirects=False)
     assert resp.status_code == 303
 
-    db.expire(node2)
-    node2 = db.query(ChatNode).filter(ChatNode.id == node2.id).first()
-    # node2 already had output_node_id set to node1.id — should remain unchanged
-    assert node2.output_node_id == node1.id
+    # node2's default edge should still point to node1
+    edge = db.query(NodeEdge).filter(NodeEdge.id == existing_edge_id).first()
+    assert edge is not None
+    assert edge.target_node_id == node1.id
 
 
 # ---------------------------------------------------------------------------
@@ -544,7 +551,6 @@ def test_workspace_status_endpoint(client_and_db):
     node_data = data["nodes"][0]
     assert node_data["id"] == node.id
     assert node_data["status"] == "idle"
-    assert node_data["loop_count"] == 0
 
     assert len(node_data["messages"]) == 1
     msg_data = node_data["messages"][0]
@@ -560,3 +566,121 @@ def test_workspace_status_endpoint_404(client):
     """GET /workspaces/99999/status returns 404 for a non-existent workspace."""
     resp = client.get("/workspaces/99999/status")
     assert resp.status_code == 404
+
+
+def test_set_default_edge_creates_node_edge(client_and_db):
+    """POST /workspaces/{ws_id}/nodes/{node_id}/edges with trigger=on_complete creates a NodeEdge."""
+    from app.models import Workspace, ChatNode, NodeEdge
+
+    client, db = client_and_db
+
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+    db.refresh(ws)
+
+    node_a = ChatNode(workspace_id=ws.id, name="A", order_index=0)
+    node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1)
+    db.add_all([node_a, node_b])
+    db.commit()
+
+    resp = client.post(
+        f"/workspaces/{ws.id}/nodes/{node_a.id}/edges",
+        data={"target_node_id": str(node_b.id), "trigger": "on_complete"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+
+    edge = db.query(NodeEdge).filter(
+        NodeEdge.source_node_id == node_a.id,
+        NodeEdge.trigger == "on_complete",
+    ).first()
+    assert edge is not None
+    assert edge.target_node_id == node_b.id
+
+
+def test_set_default_edge_blank_deletes_edge(client_and_db):
+    """POST .../edges/{edge_id}/delete deletes the existing edge."""
+    from app.models import Workspace, ChatNode, NodeEdge
+
+    client, db = client_and_db
+
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+    db.refresh(ws)
+
+    node_a = ChatNode(workspace_id=ws.id, name="A", order_index=0)
+    node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1)
+    db.add_all([node_a, node_b])
+    db.commit()
+
+    # Create an edge first
+    edge = NodeEdge(source_node_id=node_a.id, target_node_id=node_b.id, trigger="on_complete")
+    db.add(edge)
+    db.commit()
+    edge_id = edge.id
+
+    # Delete the edge via the delete endpoint
+    resp = client.post(
+        f"/workspaces/{ws.id}/nodes/{node_a.id}/edges/{edge_id}/delete",
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+
+    remaining = db.query(NodeEdge).filter(NodeEdge.id == edge_id).first()
+    assert remaining is None
+
+
+def test_set_no_go_edge_creates_node_edge(client_and_db):
+    """POST /workspaces/{ws_id}/nodes/{node_id}/edges with trigger=on_no_go creates an on_no_go NodeEdge."""
+    from app.models import Workspace, ChatNode, NodeEdge
+
+    client, db = client_and_db
+
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+    db.refresh(ws)
+
+    node_a = ChatNode(workspace_id=ws.id, name="A", order_index=0)
+    node_b = ChatNode(workspace_id=ws.id, name="B", order_index=1)
+    db.add_all([node_a, node_b])
+    db.commit()
+
+    resp = client.post(
+        f"/workspaces/{ws.id}/nodes/{node_a.id}/edges",
+        data={"target_node_id": str(node_b.id), "trigger": "on_no_go"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+
+    edge = db.query(NodeEdge).filter(
+        NodeEdge.source_node_id == node_a.id,
+        NodeEdge.trigger == "on_no_go",
+    ).first()
+    assert edge is not None
+    assert edge.target_node_id == node_b.id
+
+
+def test_workspace_status_no_loop_count(client_and_db):
+    """GET /workspaces/{ws_id}/status does not return loop_count in node data."""
+    from app.models import Workspace, ChatNode
+
+    client, db = client_and_db
+
+    ws = Workspace(title="WS")
+    db.add(ws)
+    db.commit()
+    db.refresh(ws)
+
+    node = ChatNode(workspace_id=ws.id, name="Node A", order_index=0, status="idle")
+    db.add(node)
+    db.commit()
+
+    resp = client.get(f"/workspaces/{ws.id}/status")
+    assert resp.status_code == 200
+
+    data = resp.json()
+    node_data = data["nodes"][0]
+    assert "loop_count" not in node_data

@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, CheckConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -129,10 +129,6 @@ class ChatNode(Base):
     name = Column(String, nullable=False)
     agent_profile_id = Column(Integer, ForeignKey("agent_profiles.id"), nullable=True)
     agent_role_id = Column(Integer, ForeignKey("agent_roles.id"), nullable=True)
-    output_node_id = Column(Integer, ForeignKey("chat_nodes.id"), nullable=True)
-    loop_node_id = Column(Integer, ForeignKey("chat_nodes.id"), nullable=True)
-    max_loops = Column(Integer, default=3, nullable=False)
-    loop_count = Column(Integer, default=0, nullable=False)
     order_index = Column(Integer, default=0, nullable=False)
     status = Column(String, nullable=False, default="idle")  # idle | running | needs_attention
     last_error = Column(Text, nullable=True)
@@ -143,13 +139,37 @@ class ChatNode(Base):
     workspace = relationship("Workspace", back_populates="nodes")
     agent_profile = relationship("AgentProfile", foreign_keys=[agent_profile_id])
     agent_role = relationship("AgentRole", foreign_keys=[agent_role_id])
-    output_node = relationship("ChatNode", remote_side="ChatNode.id", foreign_keys="[ChatNode.output_node_id]")
-    loop_node = relationship("ChatNode", remote_side="ChatNode.id", foreign_keys="[ChatNode.loop_node_id]")
     messages = relationship("ChatMessage", back_populates="node", cascade="all, delete-orphan", order_by="ChatMessage.sequence_number", foreign_keys="[ChatMessage.node_id]")
+    outbound_edges = relationship("NodeEdge", foreign_keys="[NodeEdge.source_node_id]", back_populates="source_node", cascade="all, delete-orphan")
+    inbound_edges = relationship("NodeEdge", foreign_keys="[NodeEdge.target_node_id]", back_populates="target_node", cascade="all, delete-orphan")
+
+
+class NodeEdge(Base):
+    __tablename__ = "node_edges"
+
+    id = Column(Integer, primary_key=True, index=True)
+    source_node_id = Column(Integer, ForeignKey("chat_nodes.id", ondelete="CASCADE"), nullable=False, index=True)
+    target_node_id = Column(Integer, ForeignKey("chat_nodes.id", ondelete="CASCADE"), nullable=False, index=True)
+    trigger = Column(String, nullable=False)  # "on_complete" | "on_no_go"
+    label = Column(String, nullable=True)
+    sort_order = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        CheckConstraint("trigger IN ('on_complete', 'on_no_go')", name="ck_node_edge_trigger"),
+    )
+
+    source_node = relationship("ChatNode", foreign_keys=[source_node_id], back_populates="outbound_edges")
+    target_node = relationship("ChatNode", foreign_keys=[target_node_id], back_populates="inbound_edges")
 
 
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
+
+    __table_args__ = (
+        UniqueConstraint("node_id", "conversation_version", "sequence_number", name="uq_chat_message_seq"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     node_id = Column(Integer, ForeignKey("chat_nodes.id"), nullable=False)

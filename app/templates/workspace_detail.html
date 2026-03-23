@@ -53,13 +53,13 @@
       </div>
     </div>
     <!-- Workflow strip — no wrap, horizontal scroll.
-         loop_groups is pre-computed in the route: [{start, end, max_loops, loop_count, color_idx}, ...]
+         revisit_groups is pre-computed in the route: [{start, end, source_node_id, target_node_id, label, color_idx}, ...]
          start/end are 0-based indices into workspace.nodes, always start <= end regardless
-         of whether the loop is forward or backward.
-         Loop brackets are drawn by JS (renderLoopBrackets) — no wrapping divs used. -->
+         of direction. Revisit brackets are drawn by JS (renderRevisitBrackets) — no wrapping divs used. -->
     <div class="workflow-nodes" id="workflow-nodes">
-      {# Flat chip rendering — loop brackets are drawn by JS #}
+      {# Flat chip rendering — revisit brackets are drawn by JS #}
       {% for node in workspace.nodes %}
+        {% set node_edge_list = outgoing_edges_by_node_id.get(node.id, []) %}
         <a class="workflow-node-chip {% if node.status == 'running' %}running{% endif %}"
            href="#node-{{ node.id }}" data-node-id="{{ node.id }}"
            data-chip-index="{{ loop.index0 }}">
@@ -73,9 +73,17 @@
           <span class="workflow-node-chip-status status-{{ node.status }}">
             {{ 'Ready' if node.status == 'idle' else 'Running…' if node.status == 'running' else 'Needs attention' }}
           </span>
+          {% if node_edge_list %}
+          <span class="workflow-node-chip-route">
+            {% for e in node_edge_list %}
+              {% if e.trigger == 'on_complete' %}→{% else %}↩{% endif %}
+              {{ e.label or e.target_name }}{% if not loop.last %}, {% endif %}
+            {% endfor %}
+          </span>
+          {% endif %}
         </a>
         {% if not loop.last %}
-          {% if node.output_node %}
+          {% if node_edge_list %}
           <span class="workflow-node-route-arrow">→</span>
           {% else %}
           <span class="workflow-node-route-arrow" style="opacity:0.3">·</span>
@@ -89,21 +97,12 @@
       </form>
     </div>
 
-    <script id="loop-groups-data" type="application/json">{{ loop_groups | tojson }}</script>
+    <script id="revisit-groups-data" type="application/json">{{ revisit_groups | tojson }}</script>
   </div>
 
   <!-- Lower chat panels — fixed min-width, horizontal scroll (J) -->
   <div class="chat-panels-area" id="chat-panels-area">
     {% for node in workspace.nodes %}
-    {# Compute which nodes feed into this node (input_from) #}
-    {% set input_from_nodes = [] %}
-    {% for other in workspace.nodes %}
-      {% if other.id != node.id %}
-        {% if other.output_node_id == node.id or other.loop_node_id == node.id %}
-          {% set _ = input_from_nodes.append(other) %}
-        {% endif %}
-      {% endif %}
-    {% endfor %}
     <div class="chat-panel" id="node-{{ node.id }}" data-node-id="{{ node.id }}">
 
       <!-- 1. Node name (editable inline — M) -->
@@ -124,61 +123,77 @@
         </span>
       </div>
 
-      <!-- 2. Input from (read-only) -->
+      <!-- 2. Routing section -->
       <div class="chat-panel-routing">
-        <div class="routing-row">
-          <span class="routing-label">Input from</span>
-          <span class="routing-value">
-            {% if input_from_nodes %}
-              {{ input_from_nodes | map(attribute='name') | join(', ') }}
+
+        {# Input from — read only #}
+        <div class="route-row">
+          <label>Input from</label>
+          <div class="route-sources">
+            {% set sources = incoming_sources_by_node_id.get(node.id, []) %}
+            {% if sources %}
+              {% for src in sources %}
+                <span class="provenance-{{ src.trigger }}">
+                  {% if src.trigger == 'on_complete' %}↪{% else %}↩{% endif %}
+                  {{ src.source_name }}{% if src.label %} ({{ src.label }}){% endif %}
+                </span>
+              {% endfor %}
             {% else %}
-              —
+              <span class="muted">No incoming routes</span>
             {% endif %}
-          </span>
+          </div>
         </div>
 
-        <!-- 3. Output to dropdown -->
-        <div class="routing-row">
-          <span class="routing-label">Output to</span>
-          <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/route"
-                id="route-form-{{ node.id }}" style="display:contents">
-            <select name="output_node_id" class="route-select-inline"
-                    data-submit-form="route-form-{{ node.id }}">
-              <option value="">No output</option>
+        {# Outbound edges list #}
+        <div class="route-row">
+          <label>Outbound edges</label>
+          <div class="edge-list">
+            {% for edge in outgoing_edges_by_node_id.get(node.id, []) %}
+            <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/edges/{{ edge.edge_id }}/update" class="edge-row">
+              <input type="text" name="label" value="{{ edge.label }}" placeholder="Label" class="edge-label-input">
+              <select name="trigger">
+                <option value="on_complete" {% if edge.trigger == 'on_complete' %}selected{% endif %}>On complete</option>
+                <option value="on_no_go" {% if edge.trigger == 'on_no_go' %}selected{% endif %}>On NO_GO</option>
+              </select>
+              <select name="target_node_id">
+                {% for other in workspace.nodes %}
+                  {% if other.id != node.id %}
+                    <option value="{{ other.id }}" {% if other.id == edge.target_node_id %}selected{% endif %}>{{ other.name }}</option>
+                  {% endif %}
+                {% endfor %}
+              </select>
+              <input type="hidden" name="sort_order" value="{{ edge.sort_order }}">
+              <button type="submit">Save</button>
+            </form>
+            <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/edges/{{ edge.edge_id }}/delete" style="display:inline">
+              <button type="submit" class="btn-danger-small">✕</button>
+            </form>
+            {% else %}
+            <span class="muted">No outbound edges</span>
+            {% endfor %}
+          </div>
+        </div>
+
+        {# Add edge #}
+        <div class="route-row">
+          <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/edges" class="add-edge-form">
+            <input type="text" name="label" placeholder="Label (optional)" class="edge-label-input">
+            <select name="trigger">
+              <option value="on_complete">On complete</option>
+              <option value="on_no_go">On NO_GO</option>
+            </select>
+            <select name="target_node_id">
+              <option value="">— pick target —</option>
               {% for other in workspace.nodes %}
                 {% if other.id != node.id %}
-                <option value="{{ other.id }}" {% if node.output_node_id == other.id %}selected{% endif %}>{{ other.name }}</option>
+                  <option value="{{ other.id }}">{{ other.name }}</option>
                 {% endif %}
               {% endfor %}
             </select>
+            <button type="submit">+ Add</button>
           </form>
         </div>
-
-        <!-- 4. Loop to dropdown + max_loops -->
-        <div class="routing-row">
-          <span class="routing-label">Loop to</span>
-          <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/loop-route"
-                id="loop-form-{{ node.id }}" style="display:contents">
-            <select name="loop_node_id" class="route-select-inline"
-                      id="loop-select-{{ node.id }}"
-                    data-node-id="{{ node.id }}"
-                    data-submit-form="loop-form-{{ node.id }}">
-              <option value="">No loop</option>
-              {% for other in workspace.nodes %}
-                {% if other.id != node.id %}
-                <option value="{{ other.id }}" {% if node.loop_node_id == other.id %}selected{% endif %}>{{ other.name }}</option>
-                {% endif %}
-              {% endfor %}
-            </select>
-            <span id="max-loops-wrap-{{ node.id }}" {% if not node.loop_node_id %}hidden{% endif %}>
-              <input type="number" name="max_loops" class="max-loops-input"
-                     id="max-loops-input-{{ node.id }}"
-                     value="{{ node.max_loops }}" min="1" max="99"
-                     title="Max loops"
-                     data-submit-form="loop-form-{{ node.id }}">
-            </span>
-          </form>
-        </div>
+        <p class="route-note">Routed messages are appended only. Target nodes do not auto-run.</p>
       </div>
 
       <!-- 5. Message transcript (F: running = thinking indicator) -->
@@ -192,7 +207,12 @@
         {% for msg in visible_msgs %}
         <div class="chat-msg chat-msg-{{ msg.role }} chat-msg-kind-{{ msg.message_kind }} chat-msg-status-{{ msg.status }}" data-msg-id="{{ msg.id }}">
           {% if msg.source_node_id %}
-          <span class="chat-msg-provenance">↩ imported from {{ node_names[msg.source_node_id] if msg.source_node_id in node_names else 'node ' ~ msg.source_node_id }}</span>
+          {% set src_name = node_names[msg.source_node_id] if msg.source_node_id in node_names else 'node ' ~ msg.source_node_id %}
+          {% if msg.message_kind == 'auto_route' %}
+          <span class="chat-msg-provenance provenance-route">↪ routed from {{ src_name }}</span>
+          {% else %}
+          <span class="chat-msg-provenance provenance-import">↩ imported from {{ src_name }}</span>
+          {% endif %}
           {% endif %}
           <div class="chat-msg-bubble">{{ msg.content }}</div>
         </div>
@@ -304,11 +324,11 @@
 {% block scripts %}
 <script id="workspace-page-config" type="application/json">{{ {'workspaceId': workspace.id, 'nodeNames': node_names} | tojson }}</script>
 <script>
-var LOOP_GROUPS = JSON.parse(document.getElementById('loop-groups-data').textContent);
+var REVISIT_GROUPS = JSON.parse(document.getElementById('revisit-groups-data').textContent);
 
-// ── Loop bracket renderer ─────────────────────────────────
+// ── Revisit bracket renderer ──────────────────────────────
 (function() {
-  // 4-color palette for loop brackets
+  // 4-color palette for revisit brackets
   var PALETTE = [
     { border: '#f97316', bg: 'rgba(249,115,22,0.07)', text: '#c2410c', badgeBg: '#fff7ed' },
     { border: '#3b82f6', bg: 'rgba(59,130,246,0.07)',  text: '#1e40af', badgeBg: '#eff6ff' },
@@ -316,13 +336,13 @@ var LOOP_GROUPS = JSON.parse(document.getElementById('loop-groups-data').textCon
     { border: '#10b981', bg: 'rgba(16,185,129,0.07)', text: '#065f46', badgeBg: '#ecfdf5' },
   ];
 
-  function renderLoopBrackets() {
-    var groups = LOOP_GROUPS || [];
+  function renderRevisitBrackets() {
+    var groups = REVISIT_GROUPS || [];
     var strip = document.getElementById('workflow-nodes');
     if (!strip) return;
 
     // Remove old brackets
-    strip.querySelectorAll('.loop-bracket').forEach(function(el) { el.remove(); });
+    strip.querySelectorAll('.revisit-bracket').forEach(function(el) { el.remove(); });
 
     var BRACKET_ROOF = 18; // vertical space each bracket "roof" occupies
     var GAP = 4;
@@ -345,12 +365,12 @@ var LOOP_GROUPS = JSON.parse(document.getElementById('loop-groups-data').textCon
     var firstChip = chips[0];
     var chipHeight = firstChip ? firstChip.offsetHeight : 44;
 
-    groups.forEach(function(lg, i) {
-      var startChip = chips[lg.start];
-      var endChip = chips[lg.end];
+    groups.forEach(function(rg, i) {
+      var startChip = chips[rg.start];
+      var endChip = chips[rg.end];
       if (!startChip || !endChip) return;
 
-      var c = PALETTE[lg.color_idx % PALETTE.length];
+      var c = PALETTE[rg.color_idx % PALETTE.length];
 
       var startRect = startChip.getBoundingClientRect();
       var endRect = endChip.getBoundingClientRect();
@@ -367,7 +387,7 @@ var LOOP_GROUPS = JSON.parse(document.getElementById('loop-groups-data').textCon
       var height = (neededPadding - top) + chipHeight + 4;
 
       var bracket = document.createElement('div');
-      bracket.className = 'loop-bracket';
+      bracket.className = 'revisit-bracket';
       bracket.style.cssText = [
         'position: absolute',
         'left: ' + left + 'px',
@@ -381,12 +401,12 @@ var LOOP_GROUPS = JSON.parse(document.getElementById('loop-groups-data').textCon
         'box-sizing: border-box',
       ].join(';');
 
-      var label = '\u21ba Loop max: ' + lg.max_loops;
-      if (lg.loop_count > 0) label += ' (' + lg.loop_count + '/' + lg.max_loops + ')';
+      var label = rg.label || '\u21ba revisit';
 
       var badge = document.createElement('span');
-      badge.className = 'loop-bracket-badge';
+      badge.className = 'revisit-bracket-badge';
       badge.textContent = label;
+      badge.title = label;
       badge.style.cssText = [
         'position: absolute',
         'top: -1px',         // sits just inside the top border
@@ -408,12 +428,12 @@ var LOOP_GROUPS = JSON.parse(document.getElementById('loop-groups-data').textCon
     });
   }
 
-  document.addEventListener('DOMContentLoaded', renderLoopBrackets);
-  window.addEventListener('resize', renderLoopBrackets);
+  document.addEventListener('DOMContentLoaded', renderRevisitBrackets);
+  window.addEventListener('resize', renderRevisitBrackets);
   // Re-render on strip scroll (brackets need to stay with chips)
   document.addEventListener('DOMContentLoaded', function() {
     var strip = document.getElementById('workflow-nodes');
-    if (strip) strip.addEventListener('scroll', renderLoopBrackets);
+    if (strip) strip.addEventListener('scroll', renderRevisitBrackets);
   });
 })();
 
@@ -444,15 +464,6 @@ function focusNode(nodeId) {
 document.querySelectorAll('.chat-transcript').forEach(t => {
   t.scrollTop = t.scrollHeight;
 });
-
-// ── E: Loop select show/hide max_loops input ─────────────
-function onLoopSelectChange(nodeId) {
-  const sel = document.getElementById('loop-select-' + nodeId);
-  const wrap = document.getElementById('max-loops-wrap-' + nodeId);
-  if (sel && wrap) {
-    wrap.hidden = !sel.value;
-  }
-}
 
 // ── B: Inline workspace title editing ────────────────────
 function startWsRename() {
@@ -610,8 +621,14 @@ var PAGE_CONFIG = JSON.parse(document.getElementById('workspace-page-config').te
 
     if (msg.source_node_id) {
       var prov = document.createElement('span');
-      prov.className = 'chat-msg-provenance';
-      prov.textContent = '↩ imported from ' + (NODE_NAMES[msg.source_node_id] || 'node ' + msg.source_node_id);
+      var srcName = NODE_NAMES[msg.source_node_id] || 'node ' + msg.source_node_id;
+      if (msg.message_kind === 'auto_route') {
+        prov.className = 'chat-msg-provenance provenance-route';
+        prov.textContent = '↪ routed from ' + srcName;
+      } else {
+        prov.className = 'chat-msg-provenance provenance-import';
+        prov.textContent = '↩ imported from ' + srcName;
+      }
       div.appendChild(prov);
     }
 
@@ -715,8 +732,8 @@ var PAGE_CONFIG = JSON.parse(document.getElementById('workspace-page-config').te
           }
         });
 
-        // Re-render loop brackets (loop_count may have changed)
-        if (typeof renderLoopBrackets === 'function') renderLoopBrackets();
+        // Re-render revisit brackets if needed
+        if (typeof renderRevisitBrackets === 'function') renderRevisitBrackets();
 
         // Schedule next poll
         clearTimeout(pollTimer);
@@ -787,9 +804,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
   document.querySelectorAll('[data-submit-form]').forEach(function(el) {
     el.addEventListener('change', function() {
-      if (el.classList.contains('route-select-inline') && el.id.indexOf('loop-select-') === 0) {
-        onLoopSelectChange(el.dataset.nodeId);
-      }
       var form = document.getElementById(el.dataset.submitForm);
       if (form) form.submit();
     });
