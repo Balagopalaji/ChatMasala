@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Settings — ChatMasala{% endblock %}
 
-{% block sidebar_runs %}
+{% block sidebar_workspaces %}
 {% for ws in all_workspaces %}
-<a href="/workspaces/{{ ws.id }}" class="run-item">
-  <span class="run-item-title">{{ ws.title | truncate(26, True) }}</span>
+<a href="/workspaces/{{ ws.id }}" class="workspace-item">
+  <span class="workspace-item-title">{{ ws.title | truncate(26, True) }}</span>
 </a>
 {% endfor %}
 {% endblock %}

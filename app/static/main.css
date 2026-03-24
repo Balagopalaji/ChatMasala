@@ -206,8 +206,8 @@ h1, h2, h3 {
   border-radius: 2px;
 }
 
-/* Sidebar workspace links (run-item = legacy class name) */
-.run-item,
+/* Sidebar workspace links */
+.workspace-item,
 .sidebar-workspace-link {
   display: block;
   padding: var(--space-2) var(--space-3);
@@ -222,22 +222,22 @@ h1, h2, h3 {
   transition: background 0.12s, color 0.12s;
 }
 
-.run-item:hover,
+.workspace-item:hover,
 .sidebar-workspace-link:hover {
   background: var(--bg-card);
   color: var(--text-primary);
   text-decoration: none;
 }
 
-.run-item.active,
-.run-item-active,
+.workspace-item.active,
+.workspace-item-active,
 .sidebar-workspace-link.active {
   background: var(--bg-card);
   color: var(--text-primary);
   border-left-color: var(--accent);
 }
 
-.run-item-title {
+.workspace-item-title {
   font-size: 0.85rem;
   font-weight: 500;
   white-space: nowrap;
@@ -246,13 +246,13 @@ h1, h2, h3 {
   display: block;
 }
 
-.run-item-meta {
+.workspace-item-meta {
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
-.run-item-time {
+.workspace-item-time {
   font-size: 0.72rem;
   color: var(--text-muted);
 }
@@ -280,7 +280,6 @@ h1, h2, h3 {
   flex-shrink: 0;
 }
 
-.new-run-btn,
 .new-workspace-btn {
   display: block;
   width: 100%;
@@ -298,7 +297,6 @@ h1, h2, h3 {
   transition: background 0.15s;
 }
 
-.new-run-btn:hover,
 .new-workspace-btn:hover {
   background: var(--accent-hover);
   text-decoration: none;
@@ -363,14 +361,14 @@ h1, h2, h3 {
   font-size: 1.2rem;
 }
 
-/* Workspace / run cards on list page */
-.run-cards {
+/* Workspace cards on list page */
+.workspace-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 0.75rem;
 }
 
-.run-card {
+.workspace-card {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-md);
@@ -382,14 +380,14 @@ h1, h2, h3 {
   display: block;
 }
 
-.run-card:hover {
+.workspace-card:hover {
   border-color: var(--accent);
   box-shadow: var(--shadow-md);
   text-decoration: none;
   color: var(--text-primary);
 }
 
-.run-card-header {
+.workspace-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -397,19 +395,19 @@ h1, h2, h3 {
   gap: 0.5rem;
 }
 
-.run-card-title {
+.workspace-card-title {
   font-weight: 600;
   font-size: 0.9rem;
 }
 
-.run-card-meta {
+.workspace-card-meta {
   display: flex;
   justify-content: space-between;
   font-size: 0.78rem;
   color: var(--text-secondary);
 }
 
-.run-card-goal {
+.workspace-card-path {
   margin: 0.25rem 0;
   font-size: 0.8rem;
   color: var(--text-secondary);
@@ -1754,7 +1752,7 @@ details[open] summary {
 }
 
 /* =========================================================
-   Run detail relay view
+   Workspace transcript panel
    ========================================================= */
 .run-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
 .title-edit-form { flex: 1; }

@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block title %}ChatMasala — Workspaces{% endblock %}
 
-{% block sidebar_runs %}
+{% block sidebar_workspaces %}
 {% for ws in workspaces %}
-<a href="/workspaces/{{ ws.id }}" class="run-item">
-  <span class="run-item-title">{{ ws.title | truncate(26, True) }}</span>
-  <span class="run-item-meta">
-    <span class="run-item-time">{{ ws.updated_at.strftime("%m/%d %H:%M") if ws.updated_at else "" }}</span>
+<a href="/workspaces/{{ ws.id }}" class="workspace-item">
+  <span class="workspace-item-title">{{ ws.title | truncate(26, True) }}</span>
+  <span class="workspace-item-meta">
+    <span class="workspace-item-time">{{ ws.updated_at.strftime("%m/%d %H:%M") if ws.updated_at else "" }}</span>
   </span>
 </a>
 {% endfor %}
@@ -20,17 +20,17 @@
   </form>
 </div>
 {% if workspaces %}
-<div class="run-cards">
+<div class="workspace-cards">
   {% for ws in workspaces %}
-  <a href="/workspaces/{{ ws.id }}" class="run-card">
-    <div class="run-card-header">
-      <span class="run-card-title">{{ ws.title }}</span>
-      <span class="run-item-time">{{ ws.updated_at.strftime("%Y-%m-%d %H:%M") if ws.updated_at else "—" }}</span>
+  <a href="/workspaces/{{ ws.id }}" class="workspace-card">
+    <div class="workspace-card-header">
+      <span class="workspace-card-title">{{ ws.title }}</span>
+      <span class="workspace-item-time">{{ ws.updated_at.strftime("%Y-%m-%d %H:%M") if ws.updated_at else "—" }}</span>
     </div>
     {% if ws.workspace_path %}
-    <p class="run-card-goal"><code>{{ ws.workspace_path }}</code></p>
+    <p class="workspace-card-path"><code>{{ ws.workspace_path }}</code></p>
     {% endif %}
-    <div class="run-card-meta">
+    <div class="workspace-card-meta">
       <span>{{ ws.nodes | length }} node(s)</span>
     </div>
   </a>
