@@ -1,13 +1,12 @@
 # ChatMasala Workspace-First Build Plan
 
-> Active execution plan for the next product pass. **Pass A (multi-output edges) is the active next implementation pass — see "Pass A: Multi-Output Edges" section below.**
+> **Status: Pass A, Pass B, and Pass C are fully implemented. 96 tests passing.**
 >
-> Source of truth for this pass: current non-archive repo code, the clarified product intent from the latest design discussion, and the visual direction shown by the mockups in `tmp/Multi-Chat Workflow Builder/`.
+> - ✅ Pass A — Multi-output edges (fan-out routing, label, sort_order, GO/NO_GO sentinel)
+> - ✅ Pass B — Human-gate routing mode (per-node toggle, `awaiting_route` status, explicit message_id binding)
+> - ✅ Pass C — Human-input node type (skips agent, routes user message directly)
 >
-> Ignore for implementation decisions:
-> - `docs/archive/**`
-> - old run/thread assumptions that conflict with this plan
-> - `tmp/**` as production code source
+> Source of truth: current repo code. Ignore `docs/archive/**` and `tmp/**` as production code sources.
 
 ## Node Recall / Revisit Override (supersedes Phase 2 routing)
 
@@ -55,7 +54,7 @@ One `default` edge ("On complete") and one `no_go` edge ("On NO_GO") per source 
 
 ---
 
-## Pass A: Multi-Output Edges (next implementation pass)
+## Pass A: Multi-Output Edges ✅ IMPLEMENTED
 
 > This section supersedes the "Node Recall / Revisit Override" section above on all routing model details. Where they conflict, **Pass A wins**.
 
@@ -64,9 +63,9 @@ One `default` edge ("On complete") and one `no_go` edge ("On NO_GO") per source 
 - Support multiple outbound edges per source node
 - Preserve same-node revisit (multiple upstream nodes → same target transcript)
 - Keep GO / NO_GO sentinel routing contract
-- Do **not** add human gate yet
-- Do **not** add human input node type yet
-- Do **not** add `routing_mode` or `awaiting_route` status yet
+- ~~Do **not** add human gate yet~~ *(implemented in Pass B)*
+- ~~Do **not** add human input node type yet~~ *(implemented in Pass C)*
+- ~~Do **not** add `routing_mode` or `awaiting_route` status yet~~ *(implemented in Pass B)*
 
 ### Model changes
 
@@ -120,27 +119,27 @@ Replace the current two-dropdown routing section in each node's chat panel with 
 
 Workflow strip chip: show edge count and/or first few target names (e.g. `→ Critic, Brainstorm A`).
 
-### Explicit defers (do not implement in this pass)
+### Explicit defers (Pass A scope — all since implemented)
 
-- `routing_mode` field on `ChatNode`
-- `awaiting_route` status
-- `awaiting_input` status
-- `node_type = human` / human input nodes
-- Visual aliasing / graph rendering beyond chip labels
-- Arbitrary general graph engine
+- ~~`routing_mode` field on `ChatNode`~~ *(implemented in Pass B)*
+- ~~`awaiting_route` status~~ *(implemented in Pass B)*
+- `awaiting_input` status *(still deferred)*
+- ~~`node_type = human` / human input nodes~~ *(implemented in Pass C)*
+- Visual aliasing / graph rendering beyond chip labels *(still deferred)*
+- Arbitrary general graph engine *(still deferred)*
 
 ### Validation checklist
 
-- [ ] Multiple `on_complete` edges fan out to all targets on success
-- [ ] Multiple `on_no_go` edges fan out to all targets on NO_GO
-- [ ] Single `on_complete` edge (no `on_no_go`) delivers unconditionally — no sentinel check
-- [ ] Same node can receive deliveries from multiple upstream nodes (same-node revisit)
-- [ ] Provenance (`↪ routed from`) remains visible on delivered messages
-- [ ] Manual import (`↩ imported from`) remains distinct from routed delivery
-- [ ] Node delete cascades to remove all its inbound and outbound edges
-- [ ] Cross-workspace edge creation is rejected
-- [ ] Edge label is displayed in node panel and workflow chip
-- [ ] Tests updated to cover fan-out behavior and edge CRUD endpoints
+- [x] Multiple `on_complete` edges fan out to all targets on success
+- [x] Multiple `on_no_go` edges fan out to all targets on NO_GO
+- [x] Single `on_complete` edge (no `on_no_go`) delivers unconditionally — no sentinel check
+- [x] Same node can receive deliveries from multiple upstream nodes (same-node revisit)
+- [x] Provenance (`↪ routed from`) remains visible on delivered messages
+- [x] Manual import (`↩ imported from`) remains distinct from routed delivery
+- [x] Node delete cascades to remove all its inbound and outbound edges
+- [x] Cross-workspace edge creation is rejected
+- [x] Edge label is displayed in node panel and workflow chip
+- [x] Tests updated to cover fan-out behavior and edge CRUD endpoints
 
 ---
 

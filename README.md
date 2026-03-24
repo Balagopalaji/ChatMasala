@@ -1,46 +1,59 @@
 # ChatMasala
 
-A workspace-first multi-chat routing app for local CLI-based AI agents.
+A workspace-first multi-agent chat routing application. Arrange multiple AI agents as nodes in a workspace, wire them together with typed edges, and route messages through the graph automatically or via manual human checkpoints.
 
-## What It Does
+## Architecture / Key Features
 
-ChatMasala lets you open a workspace and arrange multiple chat nodes inside it. Each node runs independently with its own agent and conversation context. Nodes can route output to other nodes automatically, or you can manually import messages from one node into another.
+### Workspace → Node → Edge model
 
-The top workflow view and the lower chat panels are two synchronized views of the same graph — switching between them shows you the same state from different angles.
+- A **workspace** is the top-level session. It holds a set of chat nodes and an optional filesystem path for CLI agent execution.
+- A **chat node** is a single conversation thread within a workspace. Each node has its own agent, transcript, and conversation version.
+- A **node edge** connects one node's output to one or more target nodes. Multiple outbound edges per node are supported.
 
-## Workspaces And Nodes
+### Multi-output edges (fan-out routing)
 
-- A **workspace** is the top-level session. It holds a set of chat nodes and an optional filesystem path for CLI execution.
-- A **chat node** is a single chat conversation within a workspace. Each node has its own agent, transcript, and optional downstream route.
-- A **chat message** is one turn in a node's transcript. Messages can be typed by the user, returned by an agent, imported from another node, or delivered by automatic routing.
+Each node can have any number of outbound `NodeEdge` entries. Two trigger types:
 
-## Agent Choices
+- `on_complete` — delivered when the agent finishes successfully (or unconditionally if no `on_no_go` edges exist on the node)
+- `on_no_go` — delivered when the agent's final output line is the `NO_GO` sentinel
 
-Each node can use a different agent. Supported choices:
+When an agent responds, all matching edges receive the output simultaneously (fan-out). Delivered messages are appended to target node transcripts; target nodes never auto-run.
 
-- **Claude Sonnet**
-- **Claude Opus**
-- **Codex CLI**
-- **Gemini CLI**
-- **Custom** — any CLI agent you configure in Settings
+### GO / NO_GO sentinel detection
 
-## Routing And Import
+If a node has any `on_no_go` edges, the assistant output's final trimmed line is inspected:
 
-- **Automatic route** — when a node finishes, its output can be delivered automatically to one downstream node. Each node supports one downstream route in this pass.
-- **Manual import** — you can explicitly import the latest assistant message from any other node in the workspace into the current node.
+- `GO` → fan-out to all `on_complete` edges
+- `NO_GO` → fan-out to all `on_no_go` edges
+- Neither → source node enters `needs_attention` status; no delivery
 
-These two mechanisms are intentionally distinct. Automatic routing is a passive delivery. Manual import is a deliberate user action.
+If no `on_no_go` edges exist, delivery to `on_complete` edges is unconditional.
 
-## Two Views, One Graph
+### Human-gate routing mode
 
-The top of the workspace shows a workflow overview of all nodes and their connections. The bottom shows chat panels for each node. Both views reflect the same underlying state. Focusing a node in one view updates focus in the other.
+Each node has a `routing_mode` toggle:
 
-## Tech
+- **Auto** (default) — routing fires immediately after the agent responds
+- **Human gate** — after the agent responds, the node enters `awaiting_route` status. A panel appears in the UI where the user selects which outbound edges to activate, then manually confirms. Prevents new sends until routed or reset.
 
-- FastAPI + SQLite + SQLAlchemy
-- Jinja2 templates, vanilla JS only where needed
-- Polling via meta-refresh (no streaming)
-- Local SQLite database; clean-break schema reset is acceptable in this pass
+### Human-input node type
+
+Each node has a `node_type` toggle:
+
+- **Agent** (default) — sends the user's message to the configured CLI agent, waits for a reply, then routes
+- **Human input** — skips the agent entirely. The user's own message is treated as the output and routed directly to downstream edges. Useful for human decision points in a workflow.
+
+### Workflow view
+
+The top of the workspace shows a visual workflow strip of all nodes and their edge connections. The bottom shows chat panels for each node. Both views reflect the same underlying state.
+
+## Tech Stack
+
+- **FastAPI** — async HTTP, background tasks, form-based routing
+- **SQLAlchemy** + **SQLite** — ORM models, cascade deletes, constraint enforcement
+- **Jinja2** — server-rendered templates, no frontend build step
+- **Vanilla JS** — polling, auto-grow textarea, focus sync between views
+- **pytest** — 96 tests, all passing
 
 ## Local Setup
 
@@ -54,6 +67,8 @@ pip install -e ".[dev]"
 uvicorn app.main:app --reload
 ```
 
+Open `http://localhost:8000` in your browser.
+
 ## Running Tests
 
 ```bash
@@ -61,8 +76,9 @@ source .venv/bin/activate
 python -m pytest tests/ -v
 ```
 
+All 96 tests pass against an in-memory SQLite database.
+
 ## Implementation Reference
 
-- Active execution checklist: `docs/build-plan.md`
-- Secondary/legacy spec: `docs/mvp-build-spec.md`
-- Archived prior design material: `docs/archive/2026-03-16/`
+- Build plan and design decisions: `docs/build-plan.md`
+- Archived prior design material: `docs/archive/`

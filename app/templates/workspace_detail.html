@@ -132,7 +132,7 @@
 
         {# Input from — read only #}
         <div class="route-row">
-          <label>Input from</label>
+          <label>Input</label>
           <div class="route-sources">
             {% set sources = incoming_sources_by_node_id.get(node.id, []) %}
             {% if sources %}
@@ -180,11 +180,11 @@
 
         {# Outbound edges list #}
         <div class="route-row">
-          <label>Outbound edges</label>
+          <label>Outputs</label>
           <div class="edge-list">
             {% for edge in outgoing_edges_by_node_id.get(node.id, []) %}
             <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/edges/{{ edge.edge_id }}/update" class="edge-row">
-              <input type="text" name="label" value="{{ edge.label }}" placeholder="Label" class="edge-label-input">
+              <input type="text" name="label" value="{{ edge.label }}" placeholder="e.g. Output A" class="edge-label-input">
               <select name="trigger">
                 <option value="on_complete" {% if edge.trigger == 'on_complete' %}selected{% endif %}>On complete</option>
                 <option value="on_no_go" {% if edge.trigger == 'on_no_go' %}selected{% endif %}>On NO_GO</option>
@@ -216,7 +216,7 @@
             </form>
             {% endif %}
             {% else %}
-            <span class="muted">No outbound edges</span>
+            <span class="muted">No outputs</span>
             {% endfor %}
           </div>
         </div>
@@ -224,7 +224,7 @@
         {# Add edge #}
         <div class="route-row">
           <form method="post" action="/workspaces/{{ workspace.id }}/nodes/{{ node.id }}/edges" class="add-edge-form">
-            <input type="text" name="label" placeholder="Label (optional)" class="edge-label-input">
+            <input type="text" name="label" placeholder="e.g. Output A" class="edge-label-input">
             <select name="trigger">
               <option value="on_complete">On complete</option>
               <option value="on_no_go">On NO_GO</option>
@@ -293,7 +293,7 @@
             {{ edge.label or edge.target_name }}
           </label>
           {% else %}
-          <p class="muted">No outbound edges configured.</p>
+          <p class="muted">No outputs configured.</p>
           {% endfor %}
           <div class="human-gate-actions">
             <button type="submit" class="btn-primary">Route to selected</button>
