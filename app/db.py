@@ -92,7 +92,9 @@ def seed_builtin_agents() -> None:
             ).first()
             if existing:
                 existing.name = agent_data["name"]
+                existing.provider = agent_data["provider"]
                 existing.command_template = agent_data["command_template"]
+                existing.is_builtin = agent_data["is_builtin"]
                 existing.sort_order = agent_data["sort_order"]
             else:
                 db.add(AgentProfile(**agent_data))
@@ -125,9 +127,8 @@ def seed_builtin_roles(db: Session) -> None:
     db.commit()
 
 
-def init_db():
-    """Drop all tables and recreate them, then seed default data."""
-    Base.metadata.drop_all(bind=engine)
+def ensure_db() -> None:
+    """Create missing tables and seed built-in data without destroying user data."""
     Base.metadata.create_all(bind=engine)
     seed_builtin_agents()
     db = SessionLocal()
@@ -136,4 +137,21 @@ def init_db():
     finally:
         db.close()
 
+
+def init_db() -> None:
+    """Drop all tables and recreate them, then seed default data."""
+    Base.metadata.drop_all(bind=engine)
+    ensure_db()
+
+
+def bootstrap_db(reset: bool = False) -> None:
+    """Initialize the database for app startup.
+
+    By default startup is non-destructive and only ensures schema + built-ins.
+    Set reset=True for explicit destructive local resets.
+    """
+    if reset:
+        init_db()
+    else:
+        ensure_db()
 

@@ -117,6 +117,8 @@ Do not claim the implementation is complete unless:
 
 - parser success/failure tests pass
 - routing tests pass
+- changed behavior has automated tests at the smallest useful level (unit/integration)
+- user-visible workflow changes have e2e coverage or a documented blocker for why e2e could not yet be added
 - transcript is visible and persisted
 - failure states are visible
 - node reset/delete controls work

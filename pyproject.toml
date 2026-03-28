@@ -20,6 +20,7 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "httpx",
+    "playwright",
 ]
 
 [tool.setuptools.packages.find]
@@ -28,3 +29,6 @@ include = ["app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "e2e: browser-based end-to-end tests",
+]

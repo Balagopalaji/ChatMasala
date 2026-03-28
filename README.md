@@ -76,7 +76,27 @@ source .venv/bin/activate
 python -m pytest tests/ -v
 ```
 
-All 96 tests pass against an in-memory SQLite database.
+Current unit/integration coverage runs with `pytest` and should be green before any change is considered done.
+
+For browser-level smoke coverage:
+
+```bash
+source .venv/bin/activate
+python -m playwright install chromium
+python -m pytest -m e2e -v
+```
+
+The e2e suite uses a real uvicorn server plus Playwright against the rendered workspace UI. User-visible workflow changes should ship with both focused automated tests and relevant e2e coverage.
+
+## Database Startup Behavior
+
+Normal app startup is now non-destructive: it creates missing tables and seeds built-in agents/roles without wiping existing workspaces.
+
+If you explicitly want a clean local reset on boot:
+
+```bash
+CHATMASALA_RESET_DB_ON_STARTUP=1 uvicorn app.main:app --reload
+```
 
 ## Implementation Reference
 

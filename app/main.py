@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -17,7 +18,13 @@ BASE_DIR = Path(__file__).parent
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    db.init_db()
+    reset_on_startup = os.environ.get("CHATMASALA_RESET_DB_ON_STARTUP", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    db.bootstrap_db(reset=reset_on_startup)
     yield
 
 
